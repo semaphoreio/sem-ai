@@ -1,0 +1,263 @@
+# sem-agent
+
+Agent-first CLI for [Semaphore CI/CD](https://semaphoreci.com). Structured JSON output, self-discovery, composable commands, and an embedded MCP server — built for AI agents to drive the full CI/CD loop without a browser.
+
+## Why sem-agent
+
+- **JSON by default** — every command returns structured JSON. Agents parse it directly, humans use `--format table`
+- **Self-discovery** — `sem-agent discover` returns a full capability map. Every command supports `--examples`
+- **MCP server** — `sem-agent mcp` exposes all commands as native tools for Claude Code, Cursor, VS Code, and any MCP client
+- **Compound commands** — `diagnose` composes workflow → pipeline → failed jobs → logs → parsed test results into a single call
+- **Compatible** — shares `~/.sem.yaml` with the [Semaphore CLI](https://github.com/semaphoreci/cli). Same tokens, same contexts
+
+## Install
+
+```shell
+git clone https://github.com/semaphoreio/agent-cli.git
+cd agent-cli
+make install
+```
+
+Requires Go 1.25+.
+
+## Quick start
+
+```shell
+# Connect to your org (get token at https://me.semaphoreci.com/account)
+sem-agent connect myorg.semaphoreci.com YOUR_API_TOKEN
+
+# Check CI status
+sem-agent status --project my-app --branch main
+
+# Diagnose a failure — one command, full root cause
+sem-agent diagnose --project my-app --branch main
+```
+
+## MCP server
+
+Run sem-agent as a persistent MCP server. Starts once, handles all tool calls through the in-memory command tree.
+
+```shell
+sem-agent mcp
+```
+
+### Claude Code
+
+Add to `.mcp.json` in your project:
+
+```json
+{
+  "mcpServers": {
+    "semaphore": {
+      "command": "sem-agent",
+      "args": ["mcp"]
+    }
+  }
+}
+```
+
+All commands become native MCP tools (`project_list`, `diagnose`, `status`, `blast-radius`, etc). Long-running commands (`watch`, `promote-and-wait`) are excluded to prevent blocking.
+
+## Agent skills
+
+Install structured skill definitions for AI agents:
+
+```shell
+sem-agent install-skills claude
+sem-agent install-skills codex
+```
+
+Skills follow the [Agent Skills](https://agentskills.io) standard and give agents context on when and how to use each command without reading documentation.
+
+## Commands
+
+### Projects
+
+| Command | Description |
+|---------|-------------|
+| `project list` | List all projects |
+| `project show <name>` | Show project details |
+| `project update <name>` | Update project settings |
+| `project delete <name>` | Delete a project |
+
+### Workflows
+
+| Command | Description |
+|---------|-------------|
+| `workflow list --project <p>` | List workflows |
+| `workflow show <id>` | Show workflow details |
+| `workflow run --project <p>` | Rerun the latest workflow |
+| `workflow rerun <id>` | Rerun a workflow |
+| `workflow stop <id>` | Stop a workflow |
+
+### Pipelines
+
+| Command | Description |
+|---------|-------------|
+| `pipeline show <id>` | Show pipeline with blocks and jobs |
+| `pipeline list --project <p>` | List pipelines |
+| `pipeline stop <id>` | Stop a pipeline |
+| `pipeline rebuild <id>` | Trigger partial rebuild (API call only) |
+| `pipeline promote <id>` | Trigger a promotion (deploy) |
+| `pipeline topology <id>` | Show block dependency graph |
+
+### Jobs
+
+| Command | Description |
+|---------|-------------|
+| `job list --states RUNNING` | List jobs by state |
+| `job show <id>` | Show job details |
+| `job log <id>` | Fetch structured job logs |
+| `job stop <id>` | Stop a running job |
+
+### Test intelligence
+
+| Command | Description |
+|---------|-------------|
+| `test summary --pipeline <id>` | Parsed test results with file:line:message |
+| `test report --pipeline <id>` | Detailed test report |
+| `test flaky --project <p>` | Detect flaky tests across recent runs |
+
+### Deployment targets
+
+| Command | Description |
+|---------|-------------|
+| `deploy targets --project <p>` | List targets |
+| `deploy show <id>` | Show target details |
+| `deploy history <id>` | Deployment history |
+| `deploy create <name>` | Create a target |
+| `deploy activate <id>` | Activate a target |
+| `deploy deactivate <id>` | Deactivate a target |
+| `deploy delete <id>` | Delete a target |
+
+### Secrets
+
+| Command | Description |
+|---------|-------------|
+| `secret list` | List secrets (org or project level) |
+| `secret show <name>` | Show secret details |
+| `secret create <name>` | Create a secret |
+| `secret update <name>` | Update a secret |
+| `secret delete <name>` | Delete a secret |
+
+### Dashboards, notifications, tasks, agents
+
+| Command | Description |
+|---------|-------------|
+| `dashboard list/show/create/delete` | Dashboard management |
+| `notification list/show/create/delete` | Notification rules |
+| `task list/show/create/run/delete` | Scheduled tasks |
+| `agent types/show/list/delete` | Self-hosted agent management |
+
+### Artifacts
+
+| Command | Description |
+|---------|-------------|
+| `artifact list --scope jobs --id <id>` | List artifacts |
+| `artifact get --scope jobs --id <id> --path <p>` | Download an artifact |
+
+### Utility
+
+| Command | Description |
+|---------|-------------|
+| `open` | Open workflow/pipeline in browser |
+| `watch <workflow-id>` | Poll workflow until done, streaming status |
+| `api-spec` | Fetch the Semaphore v2 OpenAPI spec |
+| `version` | Print version information |
+| `yaml validate --file <path>` | Validate pipeline YAML |
+| `troubleshoot workflow/pipeline/job <id>` | Server-side diagnostics |
+
+## Compound commands
+
+These compose multiple API calls into a single operation.
+
+| Command | What it does |
+|---------|-------------|
+| `status` | CI status for a branch — pipeline state, block results |
+| `diagnose` | Full failure diagnosis — logs, test results, root cause |
+| `health` | Project health — pass rates, trends, deploy status, verdict |
+| `critical-path <id>` | Longest dependency chain (bottleneck) |
+| `blast-radius <id>` | Root failures vs cascading cancellations |
+| `rerun-failed <id>` | Partial rebuild of failed blocks only |
+| `promote-and-wait <id>` | Promote and block until promoted pipeline finishes |
+
+## Testbox
+
+Run commands in a real Semaphore CI environment before pushing. Creates a warm VM, syncs your local code, executes commands via SSH.
+
+```shell
+# Start a testbox
+sem-agent testbox warmup --project my-app
+
+# Run tests in real CI env
+sem-agent testbox run --id <id> "go test ./..."
+
+# Interactive SSH
+sem-agent testbox ssh --id <id>
+
+# Stop when done
+sem-agent testbox stop --id <id>
+```
+
+## Output
+
+All commands output JSON by default:
+
+```shell
+sem-agent status --project my-app          # JSON
+sem-agent status --project my-app -f table # human-readable table
+sem-agent status --project my-app -f yaml  # YAML
+```
+
+Errors are structured JSON on stderr:
+
+```json
+{"error": true, "code": "not_found", "message": "project not found", "status": 404}
+```
+
+## Configuration
+
+sem-agent uses `~/.sem.yaml` — the same config file as the [Semaphore CLI](https://github.com/semaphoreci/cli). If you already have `sem` configured, sem-agent works immediately.
+
+```shell
+sem-agent connect myorg.semaphoreci.com YOUR_TOKEN  # add/update context
+sem-agent context list                               # list all orgs
+sem-agent context show                               # show active org
+```
+
+## Development
+
+```shell
+# Build
+make build
+
+# Install locally
+make install
+
+# Run tests
+make test
+
+# Format and vet
+make fmt
+make vet
+```
+
+### Project structure
+
+```
+cmd/           Command implementations (one file per resource)
+pkg/client/    HTTP client with retry, pagination, versioned API support
+pkg/config/    Configuration loading from ~/.sem.yaml
+pkg/output/    JSON/table/YAML output engine
+pkg/testparse/ Test result parsers (Go, pytest, rspec, minitest, jest, ExUnit, JUnit)
+pkg/gitutil/   Git remote/branch detection
+.agents/       Agent skill definitions
+```
+
+### Adding a command
+
+1. Create `cmd/<resource>.go`
+2. Define a `cobra.Command` with `RunE`, `Short`, `Example`
+3. Register it in `init()` with `rootCmd.AddCommand()` or as a subcommand
+4. The command automatically appears in `discover`, MCP tools, and `--help`
+

@@ -1,0 +1,13 @@
+sem-agent
+*.exe
+.DS_Store
+.env
+*.env
+.mcp.json
+.claude/
+coverage.out
+coverage.html
+.vscode/
+.idea/
+*.swp
+*.swo
