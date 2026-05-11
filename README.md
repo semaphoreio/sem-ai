@@ -110,6 +110,19 @@ Skills follow the [Agent Skills](https://agentskills.io) standard and give agent
 | `job log <id>` | Fetch structured job logs |
 | `job stop <id>` | Stop a running job |
 
+### Analytics
+
+| Command | Description |
+|---------|-------------|
+| `analytics summary --project <p>` | Pass rate, duration, failures, deploys — all in one |
+| `analytics duration --project <p>` | Duration trends (avg, p50, p95) with phase breakdown |
+| `analytics failures --project <p>` | Block-level failure rates and failure reasons |
+| `analytics queue --project <p>` | Queue wait time stats |
+| `analytics deploys --project <p>` | Deploy frequency (per day / per week) |
+| `analytics trend --project <p>` | Week-over-week trends for all key metrics |
+
+All analytics commands accept `--project` (auto-detected from git), `--days`, `--branch`, and `--limit`. `analytics trend` uses `--weeks` instead of `--days`.
+
 ### Test intelligence
 
 | Command | Description |
@@ -176,6 +189,8 @@ These compose multiple API calls into a single operation.
 | `status` | CI status for a branch — pipeline state, block results |
 | `diagnose` | Full failure diagnosis — logs, test results, root cause |
 | `health` | Project health — pass rates, trends, deploy status, verdict |
+| `analytics summary` | All-in-one analytics overview for a project over a time window |
+| `analytics trend` | Week-over-week trends — pass rate, duration, queue, failures |
 | `critical-path <id>` | Longest dependency chain (bottleneck) |
 | `blast-radius <id>` | Root failures vs cascading cancellations |
 | `rerun-failed <id>` | Partial rebuild of failed blocks only |
