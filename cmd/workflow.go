@@ -5,9 +5,9 @@ import (
 	"fmt"
 	"net/url"
 
-	"github.com/semaphoreio/agent-cli/pkg/client"
-	"github.com/semaphoreio/agent-cli/pkg/config"
-	"github.com/semaphoreio/agent-cli/pkg/output"
+	"github.com/semaphoreio/sem-ai/pkg/client"
+	"github.com/semaphoreio/sem-ai/pkg/config"
+	"github.com/semaphoreio/sem-ai/pkg/output"
 	"github.com/spf13/cobra"
 )
 
@@ -24,11 +24,11 @@ var (
 var workflowListCmd = &cobra.Command{
 	Use:   "list",
 	Short: "List workflows for a project",
-	Example: `  sem-agent workflow list --project my-project
-  sem-agent workflow list --project my-project --branch main`,
+	Example: `  sem-ai workflow list --project my-project
+  sem-ai workflow list --project my-project --branch main`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		if !config.IsConfigured() {
-			return fmt.Errorf("not configured — run 'sem-agent connect' first")
+			return fmt.Errorf("not configured — run 'sem-ai connect' first")
 		}
 
 		projectID, err := resolveProjectID(wfProjectFlag)
@@ -97,10 +97,10 @@ var workflowShowCmd = &cobra.Command{
 	Use:     "show <id>",
 	Short:   "Show workflow details",
 	Args:    cobra.ExactArgs(1),
-	Example: "  sem-agent workflow show abc123-def456",
+	Example: "  sem-ai workflow show abc123-def456",
 	RunE: func(cmd *cobra.Command, args []string) error {
 		if !config.IsConfigured() {
-			return fmt.Errorf("not configured — run 'sem-agent connect' first")
+			return fmt.Errorf("not configured — run 'sem-ai connect' first")
 		}
 		c := client.New()
 		resp, err := c.Get("plumber-workflows", args[0])
@@ -174,10 +174,10 @@ var workflowRerunCmd = &cobra.Command{
 	Use:   "rerun <id>",
 	Short: "Rerun a workflow (reschedule)",
 	Args:  cobra.ExactArgs(1),
-	Example: `  sem-agent workflow rerun abc123-def456`,
+	Example: `  sem-ai workflow rerun abc123-def456`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		if !config.IsConfigured() {
-			return fmt.Errorf("not configured — run 'sem-agent connect' first")
+			return fmt.Errorf("not configured — run 'sem-ai connect' first")
 		}
 		c := client.New()
 		token := client.NewRequestToken()
@@ -205,10 +205,10 @@ var workflowStopCmd = &cobra.Command{
 	Use:   "stop <id>",
 	Short: "Stop a running workflow",
 	Args:  cobra.ExactArgs(1),
-	Example: `  sem-agent workflow stop abc123-def456`,
+	Example: `  sem-ai workflow stop abc123-def456`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		if !config.IsConfigured() {
-			return fmt.Errorf("not configured — run 'sem-agent connect' first")
+			return fmt.Errorf("not configured — run 'sem-ai connect' first")
 		}
 		c := client.New()
 		token := client.NewRequestToken()
@@ -240,11 +240,11 @@ var (
 var workflowRunCmd = &cobra.Command{
 	Use:   "run",
 	Short: "Trigger a new workflow run",
-	Example: `  sem-agent workflow run --project my-project
-  sem-agent workflow run --project my-project --branch feature-x`,
+	Example: `  sem-ai workflow run --project my-project
+  sem-ai workflow run --project my-project --branch feature-x`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		if !config.IsConfigured() {
-			return fmt.Errorf("not configured — run 'sem-agent connect' first")
+			return fmt.Errorf("not configured — run 'sem-ai connect' first")
 		}
 
 		projectID, err := resolveProjectID(wfRunProjectFlag)

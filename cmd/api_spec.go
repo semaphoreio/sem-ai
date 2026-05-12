@@ -4,20 +4,20 @@ import (
 	"encoding/json"
 	"fmt"
 
-	"github.com/semaphoreio/agent-cli/pkg/client"
-	"github.com/semaphoreio/agent-cli/pkg/config"
-	"github.com/semaphoreio/agent-cli/pkg/output"
+	"github.com/semaphoreio/sem-ai/pkg/client"
+	"github.com/semaphoreio/sem-ai/pkg/config"
+	"github.com/semaphoreio/sem-ai/pkg/output"
 	"github.com/spf13/cobra"
 )
 
 var apiSpecCmd = &cobra.Command{
 	Use:   "api-spec",
 	Short: "Fetch the Semaphore v2 OpenAPI specification",
-	Example: `  sem-agent api-spec
-  sem-agent api-spec --format yaml`,
+	Example: `  sem-ai api-spec
+  sem-ai api-spec --format yaml`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		if !config.IsConfigured() {
-			return fmt.Errorf("not configured — run 'sem-agent connect' first")
+			return fmt.Errorf("not configured — run 'sem-ai connect' first")
 		}
 		c := client.New()
 		if err := c.ResolveOrgID(); err != nil {

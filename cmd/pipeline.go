@@ -5,9 +5,9 @@ import (
 	"fmt"
 	"net/url"
 
-	"github.com/semaphoreio/agent-cli/pkg/client"
-	"github.com/semaphoreio/agent-cli/pkg/config"
-	"github.com/semaphoreio/agent-cli/pkg/output"
+	"github.com/semaphoreio/sem-ai/pkg/client"
+	"github.com/semaphoreio/sem-ai/pkg/config"
+	"github.com/semaphoreio/sem-ai/pkg/output"
 	"github.com/spf13/cobra"
 )
 
@@ -20,11 +20,11 @@ var pipelineShowCmd = &cobra.Command{
 	Use:   "show <id>",
 	Short: "Show pipeline with blocks and jobs tree",
 	Args:  cobra.ExactArgs(1),
-	Example: `  sem-agent pipeline show abc123-def456
-  sem-agent pipeline show abc123-def456 --format yaml`,
+	Example: `  sem-ai pipeline show abc123-def456
+  sem-ai pipeline show abc123-def456 --format yaml`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		if !config.IsConfigured() {
-			return fmt.Errorf("not configured — run 'sem-agent connect' first")
+			return fmt.Errorf("not configured — run 'sem-ai connect' first")
 		}
 		c := client.New()
 		params := url.Values{}
@@ -155,10 +155,10 @@ var pipelineListProjectFlag string
 var pipelineListCmd = &cobra.Command{
 	Use:   "list",
 	Short: "List pipelines for a project",
-	Example: `  sem-agent pipeline list --project my-project`,
+	Example: `  sem-ai pipeline list --project my-project`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		if !config.IsConfigured() {
-			return fmt.Errorf("not configured — run 'sem-agent connect' first")
+			return fmt.Errorf("not configured — run 'sem-ai connect' first")
 		}
 		projectID, err := resolveProjectID(pipelineListProjectFlag)
 		if err != nil {
@@ -188,10 +188,10 @@ var pipelineStopCmd = &cobra.Command{
 	Use:     "stop <id>",
 	Short:   "Stop a running pipeline",
 	Args:    cobra.ExactArgs(1),
-	Example: `  sem-agent pipeline stop abc123-def456`,
+	Example: `  sem-ai pipeline stop abc123-def456`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		if !config.IsConfigured() {
-			return fmt.Errorf("not configured — run 'sem-agent connect' first")
+			return fmt.Errorf("not configured — run 'sem-ai connect' first")
 		}
 		c := client.New()
 		body := []byte(`{"terminate_request": true}`)
@@ -213,10 +213,10 @@ var pipelineRebuildCmd = &cobra.Command{
 	Use:   "rebuild <id>",
 	Short: "Rebuild failed blocks in a pipeline (partial rebuild)",
 	Args:  cobra.ExactArgs(1),
-	Example: `  sem-agent pipeline rebuild abc123-def456`,
+	Example: `  sem-ai pipeline rebuild abc123-def456`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		if !config.IsConfigured() {
-			return fmt.Errorf("not configured — run 'sem-agent connect' first")
+			return fmt.Errorf("not configured — run 'sem-ai connect' first")
 		}
 		c := client.New()
 		token := client.NewRequestToken()
@@ -258,19 +258,19 @@ Safety:
   This prevents accidental deployments by AI agents or scripts.`,
 	Args: cobra.ExactArgs(1),
 	Example: `  # Dry run — see what would happen
-  sem-agent pipeline promote abc123 --target "Staging Deploy"
+  sem-ai pipeline promote abc123 --target "Staging Deploy"
 
   # Actually trigger promotion
-  sem-agent pipeline promote abc123 --target "Staging Deploy" --confirm
+  sem-ai pipeline promote abc123 --target "Staging Deploy" --confirm
 
   # Override conditions (e.g. promote even if tests failed)
-  sem-agent pipeline promote abc123 --target "Staging Deploy" --confirm --override
+  sem-ai pipeline promote abc123 --target "Staging Deploy" --confirm --override
 
   # With parameters
-  sem-agent pipeline promote abc123 --target "Production Deploy" --confirm --param version=1.2.3`,
+  sem-ai pipeline promote abc123 --target "Production Deploy" --confirm --param version=1.2.3`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		if !config.IsConfigured() {
-			return fmt.Errorf("not configured — run 'sem-agent connect' first")
+			return fmt.Errorf("not configured — run 'sem-ai connect' first")
 		}
 
 		pipelineID := args[0]

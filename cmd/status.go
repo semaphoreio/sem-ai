@@ -5,10 +5,10 @@ import (
 	"fmt"
 	"net/url"
 
-	"github.com/semaphoreio/agent-cli/pkg/client"
-	"github.com/semaphoreio/agent-cli/pkg/config"
-	"github.com/semaphoreio/agent-cli/pkg/gitutil"
-	"github.com/semaphoreio/agent-cli/pkg/output"
+	"github.com/semaphoreio/sem-ai/pkg/client"
+	"github.com/semaphoreio/sem-ai/pkg/config"
+	"github.com/semaphoreio/sem-ai/pkg/gitutil"
+	"github.com/semaphoreio/sem-ai/pkg/output"
 	"github.com/spf13/cobra"
 )
 
@@ -21,12 +21,12 @@ var statusCmd = &cobra.Command{
 	Use:   "status",
 	Short: "Quick CI status for a branch or PR",
 	Long:  "Compound command: finds workflows for the current branch/PR, shows pipeline and job status summary.",
-	Example: `  sem-agent status
-  sem-agent status --branch main
-  sem-agent status --project my-project --branch feature-x`,
+	Example: `  sem-ai status
+  sem-ai status --branch main
+  sem-ai status --project my-project --branch feature-x`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		if !config.IsConfigured() {
-			return fmt.Errorf("not configured — run 'sem-agent connect' first")
+			return fmt.Errorf("not configured — run 'sem-ai connect' first")
 		}
 
 		// Resolve project

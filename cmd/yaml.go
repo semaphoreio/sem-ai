@@ -5,9 +5,9 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/semaphoreio/agent-cli/pkg/client"
-	"github.com/semaphoreio/agent-cli/pkg/config"
-	"github.com/semaphoreio/agent-cli/pkg/output"
+	"github.com/semaphoreio/sem-ai/pkg/client"
+	"github.com/semaphoreio/sem-ai/pkg/config"
+	"github.com/semaphoreio/sem-ai/pkg/output"
 	"github.com/spf13/cobra"
 )
 
@@ -21,10 +21,10 @@ var yamlValidateFileFlag string
 var yamlValidateCmd = &cobra.Command{
 	Use:   "validate",
 	Short: "Validate a pipeline YAML file against the Semaphore API",
-	Example: `  sem-agent yaml validate --file .semaphore/semaphore.yml`,
+	Example: `  sem-ai yaml validate --file .semaphore/semaphore.yml`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		if !config.IsConfigured() {
-			return fmt.Errorf("not configured — run 'sem-agent connect' first")
+			return fmt.Errorf("not configured — run 'sem-ai connect' first")
 		}
 		if yamlValidateFileFlag == "" {
 			output.Error("invalid_args", "--file is required", 1)

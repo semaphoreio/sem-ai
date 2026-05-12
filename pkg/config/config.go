@@ -2,6 +2,7 @@ package config
 
 import (
 	"fmt"
+	"sort"
 
 	"github.com/spf13/viper"
 )
@@ -34,8 +35,13 @@ func GetHost() string         { return cfg.Host }
 
 func ContextList() ([]Context, error) {
 	raw := viper.GetStringMap("contexts")
-	contexts := make([]Context, 0, len(raw))
+	names := make([]string, 0, len(raw))
 	for name := range raw {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	contexts := make([]Context, 0, len(names))
+	for _, name := range names {
 		host := viper.GetString(fmt.Sprintf("contexts.%s.host", name))
 		contexts = append(contexts, Context{Name: name, Host: host})
 	}

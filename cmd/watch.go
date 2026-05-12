@@ -6,9 +6,9 @@ import (
 	"net/url"
 	"time"
 
-	"github.com/semaphoreio/agent-cli/pkg/client"
-	"github.com/semaphoreio/agent-cli/pkg/config"
-	"github.com/semaphoreio/agent-cli/pkg/output"
+	"github.com/semaphoreio/sem-ai/pkg/client"
+	"github.com/semaphoreio/sem-ai/pkg/config"
+	"github.com/semaphoreio/sem-ai/pkg/output"
 	"github.com/spf13/cobra"
 )
 
@@ -19,11 +19,11 @@ var watchCmd = &cobra.Command{
 	Short: "Poll workflow until done, streaming status updates",
 	Long:  "Polls a workflow's pipeline status at regular intervals until it completes. Returns final status.",
 	Args:  cobra.ExactArgs(1),
-	Example: `  sem-agent watch abc123-def456
-  sem-agent watch abc123-def456 --interval 10s`,
+	Example: `  sem-ai watch abc123-def456
+  sem-ai watch abc123-def456 --interval 10s`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		if !config.IsConfigured() {
-			return fmt.Errorf("not configured — run 'sem-agent connect' first")
+			return fmt.Errorf("not configured — run 'sem-ai connect' first")
 		}
 
 		interval, err := time.ParseDuration(watchIntervalFlag)

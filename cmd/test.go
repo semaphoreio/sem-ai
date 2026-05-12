@@ -9,10 +9,10 @@ import (
 	"net/url"
 	"strings"
 
-	"github.com/semaphoreio/agent-cli/pkg/client"
-	"github.com/semaphoreio/agent-cli/pkg/config"
-	"github.com/semaphoreio/agent-cli/pkg/output"
-	"github.com/semaphoreio/agent-cli/pkg/testparse"
+	"github.com/semaphoreio/sem-ai/pkg/client"
+	"github.com/semaphoreio/sem-ai/pkg/config"
+	"github.com/semaphoreio/sem-ai/pkg/output"
+	"github.com/semaphoreio/sem-ai/pkg/testparse"
 	"github.com/spf13/cobra"
 )
 
@@ -29,11 +29,11 @@ var testReportCmd = &cobra.Command{
 	Long: `Analyzes job logs in a pipeline to extract test results.
 Supports Go (gotestsum), pytest, rspec, and jest output formats.
 Returns structured test data: pass/fail counts, individual failures with file/line.`,
-	Example: `  sem-agent test report --pipeline abc123-def456
-  sem-agent test report --pipeline abc123-def456 --format table`,
+	Example: `  sem-ai test report --pipeline abc123-def456
+  sem-ai test report --pipeline abc123-def456 --format table`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		if !config.IsConfigured() {
-			return fmt.Errorf("not configured — run 'sem-agent connect' first")
+			return fmt.Errorf("not configured — run 'sem-ai connect' first")
 		}
 		if testPipelineFlag == "" {
 			return fmt.Errorf("--pipeline is required")
@@ -56,10 +56,10 @@ var testSummaryCmd = &cobra.Command{
 	Use:   "summary",
 	Short: "AI-friendly test summary for a pipeline",
 	Long:  "Compact digest: total/passed/failed/skipped counts, failure details, affected files.",
-	Example: `  sem-agent test summary --pipeline abc123-def456`,
+	Example: `  sem-ai test summary --pipeline abc123-def456`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		if !config.IsConfigured() {
-			return fmt.Errorf("not configured — run 'sem-agent connect' first")
+			return fmt.Errorf("not configured — run 'sem-ai connect' first")
 		}
 		if testSummaryPipelineFlag == "" {
 			return fmt.Errorf("--pipeline is required")
@@ -140,11 +140,11 @@ var testFlakyCmd = &cobra.Command{
 sometimes pass and sometimes fail — i.e. flaky tests.
 
 Returns each flaky test with its pass/fail ratio across recent runs.`,
-	Example: `  sem-agent test flaky --project my-project
-  sem-agent test flaky --project my-project --branch main --count 10`,
+	Example: `  sem-ai test flaky --project my-project
+  sem-ai test flaky --project my-project --branch main --count 10`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		if !config.IsConfigured() {
-			return fmt.Errorf("not configured — run 'sem-agent connect' first")
+			return fmt.Errorf("not configured — run 'sem-ai connect' first")
 		}
 		if testFlakyProjectFlag == "" {
 			return fmt.Errorf("--project is required")

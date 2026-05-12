@@ -5,9 +5,9 @@ import (
 	"fmt"
 	"net/url"
 
-	"github.com/semaphoreio/agent-cli/pkg/client"
-	"github.com/semaphoreio/agent-cli/pkg/config"
-	"github.com/semaphoreio/agent-cli/pkg/output"
+	"github.com/semaphoreio/sem-ai/pkg/client"
+	"github.com/semaphoreio/sem-ai/pkg/config"
+	"github.com/semaphoreio/sem-ai/pkg/output"
 	"github.com/spf13/cobra"
 )
 
@@ -15,12 +15,12 @@ var rerunFailedCmd = &cobra.Command{
 	Use:   "rerun-failed <pipeline-id>",
 	Short: "Rebuild only failed blocks in a pipeline (partial rebuild)",
 	Long: `Triggers a partial rebuild for failed blocks only. Returns the new pipeline ID.
-Use 'sem-agent watch <workflow-id>' to follow progress after.`,
+Use 'sem-ai watch <workflow-id>' to follow progress after.`,
 	Args: cobra.ExactArgs(1),
-	Example: `  sem-agent rerun-failed <pipeline-id>`,
+	Example: `  sem-ai rerun-failed <pipeline-id>`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		if !config.IsConfigured() {
-			return fmt.Errorf("not configured — run 'sem-agent connect' first")
+			return fmt.Errorf("not configured — run 'sem-ai connect' first")
 		}
 		pipelineID := args[0]
 		c := client.New()
@@ -85,7 +85,7 @@ Use 'sem-agent watch <workflow-id>' to follow progress after.`,
 			"workflow_id":   pplData.Pipeline.WfID,
 			"status":        "rebuild_triggered",
 			"failed_blocks": failedBlocks,
-			"message":       fmt.Sprintf("rebuilding %d failed blocks — use 'sem-agent watch %s' to follow", len(failedBlocks), pplData.Pipeline.WfID),
+			"message":       fmt.Sprintf("rebuilding %d failed blocks — use 'sem-ai watch %s' to follow", len(failedBlocks), pplData.Pipeline.WfID),
 		})
 		return nil
 	},

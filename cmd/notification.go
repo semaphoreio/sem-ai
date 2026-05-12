@@ -4,9 +4,9 @@ import (
 	"encoding/json"
 	"fmt"
 
-	"github.com/semaphoreio/agent-cli/pkg/client"
-	"github.com/semaphoreio/agent-cli/pkg/config"
-	"github.com/semaphoreio/agent-cli/pkg/output"
+	"github.com/semaphoreio/sem-ai/pkg/client"
+	"github.com/semaphoreio/sem-ai/pkg/config"
+	"github.com/semaphoreio/sem-ai/pkg/output"
 	"github.com/spf13/cobra"
 )
 
@@ -18,10 +18,10 @@ var notificationCmd = &cobra.Command{
 var notificationListCmd = &cobra.Command{
 	Use:     "list",
 	Short:   "List notification rules",
-	Example: `  sem-agent notification list`,
+	Example: `  sem-ai notification list`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		if !config.IsConfigured() {
-			return fmt.Errorf("not configured — run 'sem-agent connect' first")
+			return fmt.Errorf("not configured — run 'sem-ai connect' first")
 		}
 		c := client.New()
 		resp, err := c.List("notifications")
@@ -44,10 +44,10 @@ var notificationShowCmd = &cobra.Command{
 	Use:     "show <name>",
 	Short:   "Show notification rule details",
 	Args:    cobra.ExactArgs(1),
-	Example: `  sem-agent notification show my-notification`,
+	Example: `  sem-ai notification show my-notification`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		if !config.IsConfigured() {
-			return fmt.Errorf("not configured — run 'sem-agent connect' first")
+			return fmt.Errorf("not configured — run 'sem-ai connect' first")
 		}
 		c := client.New()
 		resp, err := c.Get("notifications", args[0])
@@ -70,10 +70,10 @@ var notificationDeleteCmd = &cobra.Command{
 	Use:     "delete <name>",
 	Short:   "Delete a notification rule",
 	Args:    cobra.ExactArgs(1),
-	Example: `  sem-agent notification delete my-notification`,
+	Example: `  sem-ai notification delete my-notification`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		if !config.IsConfigured() {
-			return fmt.Errorf("not configured — run 'sem-agent connect' first")
+			return fmt.Errorf("not configured — run 'sem-ai connect' first")
 		}
 		c := client.New()
 		resp, err := c.Delete("notifications", args[0])
@@ -95,10 +95,10 @@ var notificationCreateCmd = &cobra.Command{
 	Short: "Create a notification rule from a YAML/JSON file",
 	Long:  "Creates a notification rule. Pass the notification spec as a JSON file via --file.",
 	Args:  cobra.ExactArgs(1),
-	Example: `  sem-agent notification create my-notification --file notification.json`,
+	Example: `  sem-ai notification create my-notification --file notification.json`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		if !config.IsConfigured() {
-			return fmt.Errorf("not configured — run 'sem-agent connect' first")
+			return fmt.Errorf("not configured — run 'sem-ai connect' first")
 		}
 		// For now, create a minimal notification — full YAML/JSON support in future
 		output.Error("not_implemented", "notification create requires --file with full notification spec (not yet implemented — use sem CLI for now)", 1)

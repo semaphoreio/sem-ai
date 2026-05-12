@@ -4,9 +4,9 @@ import (
 	"encoding/json"
 	"fmt"
 
-	"github.com/semaphoreio/agent-cli/pkg/client"
-	"github.com/semaphoreio/agent-cli/pkg/config"
-	"github.com/semaphoreio/agent-cli/pkg/output"
+	"github.com/semaphoreio/sem-ai/pkg/client"
+	"github.com/semaphoreio/sem-ai/pkg/config"
+	"github.com/semaphoreio/sem-ai/pkg/output"
 	"github.com/spf13/cobra"
 )
 
@@ -18,10 +18,10 @@ var projectCmd = &cobra.Command{
 var projectListCmd = &cobra.Command{
 	Use:     "list",
 	Short:   "List all projects in the organization",
-	Example: "  sem-agent project list\n  sem-agent project list --format table",
+	Example: "  sem-ai project list\n  sem-ai project list --format table",
 	RunE: func(cmd *cobra.Command, args []string) error {
 		if !config.IsConfigured() {
-			return fmt.Errorf("not configured — run 'sem-agent connect' first")
+			return fmt.Errorf("not configured — run 'sem-ai connect' first")
 		}
 		c := client.New()
 		resp, err := c.List("projects")
@@ -84,10 +84,10 @@ var projectShowCmd = &cobra.Command{
 	Use:     "show <name>",
 	Short:   "Show project details",
 	Args:    cobra.ExactArgs(1),
-	Example: "  sem-agent project show my-project\n  sem-agent project show my-project --format yaml",
+	Example: "  sem-ai project show my-project\n  sem-ai project show my-project --format yaml",
 	RunE: func(cmd *cobra.Command, args []string) error {
 		if !config.IsConfigured() {
-			return fmt.Errorf("not configured — run 'sem-agent connect' first")
+			return fmt.Errorf("not configured — run 'sem-ai connect' first")
 		}
 		c := client.New()
 
@@ -141,10 +141,10 @@ var projectDeleteCmd = &cobra.Command{
 	Use:     "delete <name>",
 	Short:   "Delete a project",
 	Args:    cobra.ExactArgs(1),
-	Example: `  sem-agent project delete my-project`,
+	Example: `  sem-ai project delete my-project`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		if !config.IsConfigured() {
-			return fmt.Errorf("not configured — run 'sem-agent connect' first")
+			return fmt.Errorf("not configured — run 'sem-ai connect' first")
 		}
 		c := client.New()
 		resp, err := c.Delete("projects", args[0])
@@ -170,11 +170,11 @@ var projectUpdateCmd = &cobra.Command{
 	Use:   "update <name>",
 	Short: "Update project settings",
 	Args:  cobra.ExactArgs(1),
-	Example: `  sem-agent project update my-project --visibility public
-  sem-agent project update my-project --description "My app"`,
+	Example: `  sem-ai project update my-project --visibility public
+  sem-ai project update my-project --description "My app"`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		if !config.IsConfigured() {
-			return fmt.Errorf("not configured — run 'sem-agent connect' first")
+			return fmt.Errorf("not configured — run 'sem-ai connect' first")
 		}
 
 		// Need to get current project to build PATCH body

@@ -6,10 +6,10 @@ import (
 	"net/url"
 	"strings"
 
-	"github.com/semaphoreio/agent-cli/pkg/client"
-	"github.com/semaphoreio/agent-cli/pkg/config"
-	"github.com/semaphoreio/agent-cli/pkg/output"
-	"github.com/semaphoreio/agent-cli/pkg/testparse"
+	"github.com/semaphoreio/sem-ai/pkg/client"
+	"github.com/semaphoreio/sem-ai/pkg/config"
+	"github.com/semaphoreio/sem-ai/pkg/output"
+	"github.com/semaphoreio/sem-ai/pkg/testparse"
 	"github.com/spf13/cobra"
 )
 
@@ -26,12 +26,12 @@ logs → test results into a single structured diagnosis.
 
 If no workflow ID is given, finds the latest workflow for the current project/branch.`,
 	Args: cobra.MaximumNArgs(1),
-	Example: `  sem-agent diagnose
-  sem-agent diagnose <workflow-id>
-  sem-agent diagnose --project my-project --branch main`,
+	Example: `  sem-ai diagnose
+  sem-ai diagnose <workflow-id>
+  sem-ai diagnose --project my-project --branch main`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		if !config.IsConfigured() {
-			return fmt.Errorf("not configured — run 'sem-agent connect' first")
+			return fmt.Errorf("not configured — run 'sem-ai connect' first")
 		}
 
 		c := client.New()

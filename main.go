@@ -4,8 +4,8 @@ import (
 	"fmt"
 	"runtime"
 
-	"github.com/semaphoreio/agent-cli/cmd"
-	"github.com/semaphoreio/agent-cli/pkg/client"
+	"github.com/semaphoreio/sem-ai/cmd"
+	"github.com/semaphoreio/sem-ai/pkg/client"
 )
 
 var (
@@ -18,6 +18,6 @@ func main() {
 	cmd.Version = version
 	cmd.Commit = commit
 	cmd.Date = date
-	client.UserAgent = fmt.Sprintf("sem-agent/%s (%s; %s)", version, runtime.GOOS, runtime.GOARCH)
+	client.UserAgent = fmt.Sprintf("sem-ai/%s (%s; %s)", version, runtime.GOOS, runtime.GOARCH)
 	cmd.Execute()
 }

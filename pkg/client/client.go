@@ -9,12 +9,13 @@ import (
 	"math"
 	"net/http"
 	"net/url"
+	"strings"
 	"time"
 
-	"github.com/semaphoreio/agent-cli/pkg/config"
+	"github.com/semaphoreio/sem-ai/pkg/config"
 )
 
-var UserAgent = "sem-agent/dev"
+var UserAgent = "sem-ai/dev"
 
 const (
 	maxRetries     = 5
@@ -74,8 +75,15 @@ func (c *Client) ListWithParams(kind string, params url.Values) (*Response, erro
 	return c.doWithRetry("GET", u, nil)
 }
 
-// ListAll auto-paginates using x-has-more header.
-func (c *Client) ListAll(kind string, params url.Values) ([]json.RawMessage, error) {
+// ListAll auto-paginates using link header (rel="next") or x-has-more.
+// An optional StopFunc can be passed to halt pagination early — it receives
+// each page of raw items and returns true to stop fetching more pages.
+func (c *Client) ListAll(kind string, params url.Values, stopFn ...func([]json.RawMessage) bool) ([]json.RawMessage, error) {
+	var stop func([]json.RawMessage) bool
+	if len(stopFn) > 0 {
+		stop = stopFn[0]
+	}
+
 	var all []json.RawMessage
 	page := 1
 
@@ -98,14 +106,42 @@ func (c *Client) ListAll(kind string, params url.Values) ([]json.RawMessage, err
 		if err := json.Unmarshal(resp.Body, &items); err != nil {
 			return nil, fmt.Errorf("failed to parse response: %w", err)
 		}
-		all = append(all, items...)
-
-		if resp.Headers.Get("x-has-more") != "true" {
+		if len(items) == 0 {
 			break
 		}
-		page++
+		all = append(all, items...)
+
+		if stop != nil && stop(items) {
+			break
+		}
+
+		if resp.Headers.Get("x-has-more") == "true" {
+			page++
+			continue
+		}
+
+		if hasNextPage(resp.Headers.Get("Link")) {
+			page++
+			continue
+		}
+
+		break
 	}
 	return all, nil
+}
+
+// hasNextPage checks if a Link header contains rel="next".
+func hasNextPage(link string) bool {
+	if link == "" {
+		return false
+	}
+	// Simple check — link header format: <url>; rel="next", ...
+	for _, part := range strings.Split(link, ",") {
+		if strings.Contains(part, `rel="next"`) {
+			return true
+		}
+	}
+	return false
 }
 
 // Post sends a POST request.

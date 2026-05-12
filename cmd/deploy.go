@@ -5,9 +5,9 @@ import (
 	"fmt"
 	"net/url"
 
-	"github.com/semaphoreio/agent-cli/pkg/client"
-	"github.com/semaphoreio/agent-cli/pkg/config"
-	"github.com/semaphoreio/agent-cli/pkg/output"
+	"github.com/semaphoreio/sem-ai/pkg/client"
+	"github.com/semaphoreio/sem-ai/pkg/config"
+	"github.com/semaphoreio/sem-ai/pkg/output"
 	"github.com/spf13/cobra"
 )
 
@@ -21,10 +21,10 @@ var deployTargetsProjectFlag string
 var deployTargetsCmd = &cobra.Command{
 	Use:   "targets",
 	Short: "List deployment targets for a project",
-	Example: `  sem-agent deploy targets --project my-project`,
+	Example: `  sem-ai deploy targets --project my-project`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		if !config.IsConfigured() {
-			return fmt.Errorf("not configured — run 'sem-agent connect' first")
+			return fmt.Errorf("not configured — run 'sem-ai connect' first")
 		}
 		projectID, err := resolveProjectID(deployTargetsProjectFlag)
 		if err != nil {
@@ -54,10 +54,10 @@ var deployShowCmd = &cobra.Command{
 	Use:     "show <target-id>",
 	Short:   "Show deployment target details",
 	Args:    cobra.ExactArgs(1),
-	Example: `  sem-agent deploy show <target-id>`,
+	Example: `  sem-ai deploy show <target-id>`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		if !config.IsConfigured() {
-			return fmt.Errorf("not configured — run 'sem-agent connect' first")
+			return fmt.Errorf("not configured — run 'sem-ai connect' first")
 		}
 		c := client.New()
 		resp, err := c.Get("deployment_targets", args[0])
@@ -80,10 +80,10 @@ var deployHistoryCmd = &cobra.Command{
 	Use:     "history <target-id>",
 	Short:   "Show deployment history for a target",
 	Args:    cobra.ExactArgs(1),
-	Example: `  sem-agent deploy history <target-id>`,
+	Example: `  sem-ai deploy history <target-id>`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		if !config.IsConfigured() {
-			return fmt.Errorf("not configured — run 'sem-agent connect' first")
+			return fmt.Errorf("not configured — run 'sem-ai connect' first")
 		}
 		c := client.New()
 		resp, err := c.Get("deployment_targets", args[0]+"/history")
@@ -106,10 +106,10 @@ var deployActivateCmd = &cobra.Command{
 	Use:     "activate <target-id>",
 	Short:   "Activate a deployment target",
 	Args:    cobra.ExactArgs(1),
-	Example: `  sem-agent deploy activate <target-id>`,
+	Example: `  sem-ai deploy activate <target-id>`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		if !config.IsConfigured() {
-			return fmt.Errorf("not configured — run 'sem-agent connect' first")
+			return fmt.Errorf("not configured — run 'sem-ai connect' first")
 		}
 		c := client.New()
 		resp, err := c.Patch("deployment_targets", args[0]+"/activate", nil)
@@ -130,10 +130,10 @@ var deployDeactivateCmd = &cobra.Command{
 	Use:     "deactivate <target-id>",
 	Short:   "Deactivate a deployment target",
 	Args:    cobra.ExactArgs(1),
-	Example: `  sem-agent deploy deactivate <target-id>`,
+	Example: `  sem-ai deploy deactivate <target-id>`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		if !config.IsConfigured() {
-			return fmt.Errorf("not configured — run 'sem-agent connect' first")
+			return fmt.Errorf("not configured — run 'sem-ai connect' first")
 		}
 		c := client.New()
 		resp, err := c.Patch("deployment_targets", args[0]+"/deactivate", nil)
@@ -154,10 +154,10 @@ var deployDeleteCmd = &cobra.Command{
 	Use:     "delete <target-id>",
 	Short:   "Delete a deployment target",
 	Args:    cobra.ExactArgs(1),
-	Example: `  sem-agent deploy delete <target-id>`,
+	Example: `  sem-ai deploy delete <target-id>`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		if !config.IsConfigured() {
-			return fmt.Errorf("not configured — run 'sem-agent connect' first")
+			return fmt.Errorf("not configured — run 'sem-ai connect' first")
 		}
 		c := client.New()
 		token := client.NewRequestToken()
@@ -186,11 +186,11 @@ var deployCreateCmd = &cobra.Command{
 	Use:   "create <name>",
 	Short: "Create a deployment target",
 	Args:  cobra.ExactArgs(1),
-	Example: `  sem-agent deploy create staging --project my-app --url https://staging.example.com
-  sem-agent deploy create production --project my-app --branch main`,
+	Example: `  sem-ai deploy create staging --project my-app --url https://staging.example.com
+  sem-ai deploy create production --project my-app --branch main`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		if !config.IsConfigured() {
-			return fmt.Errorf("not configured — run 'sem-agent connect' first")
+			return fmt.Errorf("not configured — run 'sem-ai connect' first")
 		}
 		projectID, err := resolveProjectID(deployCreateProjectFlag)
 		if err != nil {

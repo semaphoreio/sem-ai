@@ -4,9 +4,9 @@ import (
 	"encoding/json"
 	"fmt"
 
-	"github.com/semaphoreio/agent-cli/pkg/client"
-	"github.com/semaphoreio/agent-cli/pkg/config"
-	"github.com/semaphoreio/agent-cli/pkg/output"
+	"github.com/semaphoreio/sem-ai/pkg/client"
+	"github.com/semaphoreio/sem-ai/pkg/config"
+	"github.com/semaphoreio/sem-ai/pkg/output"
 	"github.com/spf13/cobra"
 )
 
@@ -20,11 +20,11 @@ var secretProjectFlag string
 var secretListCmd = &cobra.Command{
 	Use:   "list",
 	Short: "List secrets (org-level, or --project for project-level)",
-	Example: `  sem-agent secret list
-  sem-agent secret list --project my-project`,
+	Example: `  sem-ai secret list
+  sem-ai secret list --project my-project`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		if !config.IsConfigured() {
-			return fmt.Errorf("not configured — run 'sem-agent connect' first")
+			return fmt.Errorf("not configured — run 'sem-ai connect' first")
 		}
 		c := client.New()
 		var resp *client.Response
@@ -69,11 +69,11 @@ var secretShowCmd = &cobra.Command{
 	Use:     "show <name>",
 	Short:   "Show secret details",
 	Args:    cobra.ExactArgs(1),
-	Example: `  sem-agent secret show my-secret
-  sem-agent secret show my-secret --project my-project`,
+	Example: `  sem-ai secret show my-secret
+  sem-ai secret show my-secret --project my-project`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		if !config.IsConfigured() {
-			return fmt.Errorf("not configured — run 'sem-agent connect' first")
+			return fmt.Errorf("not configured — run 'sem-ai connect' first")
 		}
 		c := client.New()
 		var resp *client.Response
@@ -119,11 +119,11 @@ var secretCreateCmd = &cobra.Command{
 	Use:   "create <name>",
 	Short: "Create a secret",
 	Args:  cobra.ExactArgs(1),
-	Example: `  sem-agent secret create my-secret --env KEY=VALUE --env DB_URL=postgres://...
-  sem-agent secret create my-secret --project my-project --env API_KEY=abc123`,
+	Example: `  sem-ai secret create my-secret --env KEY=VALUE --env DB_URL=postgres://...
+  sem-ai secret create my-secret --project my-project --env API_KEY=abc123`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		if !config.IsConfigured() {
-			return fmt.Errorf("not configured — run 'sem-agent connect' first")
+			return fmt.Errorf("not configured — run 'sem-ai connect' first")
 		}
 
 		name := args[0]
@@ -196,11 +196,11 @@ var secretUpdateCmd = &cobra.Command{
 	Use:   "update <name>",
 	Short: "Update a secret (replaces env vars)",
 	Args:  cobra.ExactArgs(1),
-	Example: `  sem-agent secret update my-secret --env KEY=NEW_VALUE
-  sem-agent secret update my-secret --project my-project --env DB_URL=new-url`,
+	Example: `  sem-ai secret update my-secret --env KEY=NEW_VALUE
+  sem-ai secret update my-secret --project my-project --env DB_URL=new-url`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		if !config.IsConfigured() {
-			return fmt.Errorf("not configured — run 'sem-agent connect' first")
+			return fmt.Errorf("not configured — run 'sem-ai connect' first")
 		}
 		name := args[0]
 		envVars := make([]map[string]string, 0)
@@ -260,11 +260,11 @@ var secretDeleteCmd = &cobra.Command{
 	Use:     "delete <name>",
 	Short:   "Delete a secret",
 	Args:    cobra.ExactArgs(1),
-	Example: `  sem-agent secret delete my-secret
-  sem-agent secret delete my-secret --project my-project`,
+	Example: `  sem-ai secret delete my-secret
+  sem-ai secret delete my-secret --project my-project`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		if !config.IsConfigured() {
-			return fmt.Errorf("not configured — run 'sem-agent connect' first")
+			return fmt.Errorf("not configured — run 'sem-ai connect' first")
 		}
 		c := client.New()
 		var resp *client.Response

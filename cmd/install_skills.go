@@ -8,7 +8,7 @@ import (
 	"strings"
 
 	homedir "github.com/mitchellh/go-homedir"
-	"github.com/semaphoreio/agent-cli/pkg/output"
+	"github.com/semaphoreio/sem-ai/pkg/output"
 	"github.com/spf13/cobra"
 )
 
@@ -22,8 +22,8 @@ var agentSkillPaths = map[string]string{
 
 var installSkillsCmd = &cobra.Command{
 	Use:   "install-skills <agent>",
-	Short: "Install sem-agent skills for an AI agent",
-	Long: fmt.Sprintf(`Copies sem-agent skill definitions to the agent's skill directory.
+	Short: "Install sem-ai skills for an AI agent",
+	Long: fmt.Sprintf(`Copies sem-ai skill definitions to the agent's skill directory.
 
 Supported agents and their default locations:
 %s
@@ -32,9 +32,9 @@ Use --target to override the default path for any agent.
 Skills follow the open Agent Skills standard (agentskills.io).
 Includes a primary skill for orientation and sub-skills for specific workflows.`, agentList()),
 	Args: cobra.MaximumNArgs(1),
-	Example: `  sem-agent install-skills claude
-  sem-agent install-skills codex
-  sem-agent install-skills claude --target ./my-project/.claude/skills`,
+	Example: `  sem-ai install-skills claude
+  sem-ai install-skills codex
+  sem-ai install-skills claude --target ./my-project/.claude/skills`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		if len(args) == 0 && installSkillsTargetFlag == "" {
 			names := make([]string, 0, len(agentSkillPaths))
@@ -154,7 +154,7 @@ func findSkillsSource() string {
 	}
 
 	home, _ := homedir.Dir()
-	candidate := filepath.Join(home, "sem-agent", ".agents", "skills")
+	candidate := filepath.Join(home, "sem-ai", ".agents", "skills")
 	if info, err := os.Stat(candidate); err == nil && info.IsDir() {
 		return candidate
 	}

@@ -4,9 +4,9 @@ import (
 	"encoding/json"
 	"fmt"
 
-	"github.com/semaphoreio/agent-cli/pkg/client"
-	"github.com/semaphoreio/agent-cli/pkg/config"
-	"github.com/semaphoreio/agent-cli/pkg/output"
+	"github.com/semaphoreio/sem-ai/pkg/client"
+	"github.com/semaphoreio/sem-ai/pkg/config"
+	"github.com/semaphoreio/sem-ai/pkg/output"
 	"github.com/spf13/cobra"
 )
 
@@ -19,7 +19,7 @@ var troubleshootWorkflowCmd = &cobra.Command{
 	Use:     "workflow <id>",
 	Short:   "Troubleshoot a workflow",
 	Args:    cobra.ExactArgs(1),
-	Example: `  sem-agent troubleshoot workflow <workflow-id>`,
+	Example: `  sem-ai troubleshoot workflow <workflow-id>`,
 	RunE:    troubleshootRun("workflow"),
 }
 
@@ -27,7 +27,7 @@ var troubleshootPipelineCmd = &cobra.Command{
 	Use:     "pipeline <id>",
 	Short:   "Troubleshoot a pipeline",
 	Args:    cobra.ExactArgs(1),
-	Example: `  sem-agent troubleshoot pipeline <pipeline-id>`,
+	Example: `  sem-ai troubleshoot pipeline <pipeline-id>`,
 	RunE:    troubleshootRun("pipeline"),
 }
 
@@ -35,14 +35,14 @@ var troubleshootJobCmd = &cobra.Command{
 	Use:     "job <id>",
 	Short:   "Troubleshoot a job",
 	Args:    cobra.ExactArgs(1),
-	Example: `  sem-agent troubleshoot job <job-id>`,
+	Example: `  sem-ai troubleshoot job <job-id>`,
 	RunE:    troubleshootRun("job"),
 }
 
 func troubleshootRun(kind string) func(*cobra.Command, []string) error {
 	return func(cmd *cobra.Command, args []string) error {
 		if !config.IsConfigured() {
-			return fmt.Errorf("not configured — run 'sem-agent connect' first")
+			return fmt.Errorf("not configured — run 'sem-ai connect' first")
 		}
 		c := client.New()
 		resp, err := c.Get("troubleshoot/"+kind, args[0])

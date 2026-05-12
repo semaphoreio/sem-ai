@@ -5,9 +5,9 @@ import (
 	"fmt"
 	"net/url"
 
-	"github.com/semaphoreio/agent-cli/pkg/client"
-	"github.com/semaphoreio/agent-cli/pkg/config"
-	"github.com/semaphoreio/agent-cli/pkg/output"
+	"github.com/semaphoreio/sem-ai/pkg/client"
+	"github.com/semaphoreio/sem-ai/pkg/config"
+	"github.com/semaphoreio/sem-ai/pkg/output"
 	"github.com/spf13/cobra"
 	"gopkg.in/yaml.v3"
 )
@@ -18,11 +18,11 @@ var pipelineTopologyCmd = &cobra.Command{
 	Use:   "topology <pipeline-id>",
 	Short: "Show block dependency graph for a pipeline",
 	Args:  cobra.ExactArgs(1),
-	Example: `  sem-agent pipeline topology <pipeline-id>
-  sem-agent pipeline topology <pipeline-id> --format table`,
+	Example: `  sem-ai pipeline topology <pipeline-id>
+  sem-ai pipeline topology <pipeline-id> --format table`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		if !config.IsConfigured() {
-			return fmt.Errorf("not configured — run 'sem-agent connect' first")
+			return fmt.Errorf("not configured — run 'sem-ai connect' first")
 		}
 		topo, err := fetchTopology(args[0])
 		if err != nil {
@@ -40,10 +40,10 @@ var criticalPathCmd = &cobra.Command{
 	Use:   "critical-path <pipeline-id>",
 	Short: "Show the longest dependency chain (bottleneck) in a pipeline",
 	Args:  cobra.ExactArgs(1),
-	Example: `  sem-agent critical-path <pipeline-id>`,
+	Example: `  sem-ai critical-path <pipeline-id>`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		if !config.IsConfigured() {
-			return fmt.Errorf("not configured — run 'sem-agent connect' first")
+			return fmt.Errorf("not configured — run 'sem-ai connect' first")
 		}
 		topo, err := fetchTopology(args[0])
 		if err != nil {
@@ -95,11 +95,11 @@ var blastRadiusCmd = &cobra.Command{
 	Use:   "blast-radius <pipeline-id>",
 	Short: "Show which blocks were affected by failures in a pipeline",
 	Args:  cobra.ExactArgs(1),
-	Example: `  sem-agent blast-radius <pipeline-id>
-  sem-agent blast-radius <pipeline-id> --block "Build project"`,
+	Example: `  sem-ai blast-radius <pipeline-id>
+  sem-ai blast-radius <pipeline-id> --block "Build project"`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		if !config.IsConfigured() {
-			return fmt.Errorf("not configured — run 'sem-agent connect' first")
+			return fmt.Errorf("not configured — run 'sem-ai connect' first")
 		}
 
 		topo, err := fetchTopology(args[0])

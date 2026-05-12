@@ -16,7 +16,7 @@ Testbox creates a Semaphore CI job you can run commands against via SSH. Same ma
 ### 1. Warm up (once per session)
 
 ```bash
-sem-agent testbox warmup --project my-app
+sem-ai testbox warmup --project my-app
 ```
 
 Returns a testbox ID + SSH info. The VM is ready when the command returns.
@@ -32,9 +32,9 @@ Options:
 ### 2. Run commands (fast — rsync + SSH)
 
 ```bash
-sem-agent testbox run --id <testbox-id> "go test ./..."
-sem-agent testbox run --id <testbox-id> "make build"
-sem-agent testbox run --id <testbox-id> "npm test"
+sem-ai testbox run --id <testbox-id> "go test ./..."
+sem-ai testbox run --id <testbox-id> "make build"
+sem-ai testbox run --id <testbox-id> "npm test"
 ```
 
 Each `run` syncs only changed files (rsync checksum), then executes. After first sync, subsequent runs take 1-3 seconds for the sync.
@@ -42,13 +42,13 @@ Each `run` syncs only changed files (rsync checksum), then executes. After first
 ### 3. Interactive SSH (optional)
 
 ```bash
-sem-agent testbox ssh --id <testbox-id>
+sem-ai testbox ssh --id <testbox-id>
 ```
 
 ### 4. Stop when done
 
 ```bash
-sem-agent testbox stop --id <testbox-id>
+sem-ai testbox stop --id <testbox-id>
 ```
 
 Or let it auto-expire after the duration/idle timeout.
@@ -65,20 +65,20 @@ Or let it auto-expire after the duration/idle timeout.
 
 ```bash
 # Start of task
-TESTBOX=$(sem-agent testbox warmup --project my-app | jq -r '.testbox_id')
+TESTBOX=$(sem-ai testbox warmup --project my-app | jq -r '.testbox_id')
 
 # Iterate on code
 # ... make changes ...
-sem-agent testbox run --id $TESTBOX "go test ./..."
+sem-ai testbox run --id $TESTBOX "go test ./..."
 # ... fix failures ...
-sem-agent testbox run --id $TESTBOX "go test ./..."
+sem-ai testbox run --id $TESTBOX "go test ./..."
 # tests pass!
 
 # Push and verify in real CI
 git push
-sem-agent workflow list --project my-app --branch $(git branch --show-current)
-sem-agent watch <workflow-id>
+sem-ai workflow list --project my-app --branch $(git branch --show-current)
+sem-ai watch <workflow-id>
 
 # Clean up
-sem-agent testbox stop --id $TESTBOX
+sem-ai testbox stop --id $TESTBOX
 ```

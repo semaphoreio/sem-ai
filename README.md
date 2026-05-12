@@ -1,20 +1,20 @@
-# sem-agent
+# sem-ai
 
 Agent-first CLI for [Semaphore CI/CD](https://semaphoreci.com). Structured JSON output, self-discovery, composable commands, and an embedded MCP server — built for AI agents to drive the full CI/CD loop without a browser.
 
-## Why sem-agent
+## Why sem-ai
 
 - **JSON by default** — every command returns structured JSON. Agents parse it directly, humans use `--format table`
-- **Self-discovery** — `sem-agent discover` returns a full capability map. Every command supports `--examples`
-- **MCP server** — `sem-agent mcp` exposes all commands as native tools for Claude Code, Cursor, VS Code, and any MCP client
+- **Self-discovery** — `sem-ai discover` returns a full capability map. Every command supports `--examples`
+- **MCP server** — `sem-ai mcp` exposes all commands as native tools for Claude Code, Cursor, VS Code, and any MCP client
 - **Compound commands** — `diagnose` composes workflow → pipeline → failed jobs → logs → parsed test results into a single call
 - **Compatible** — shares `~/.sem.yaml` with the [Semaphore CLI](https://github.com/semaphoreci/cli). Same tokens, same contexts
 
 ## Install
 
 ```shell
-git clone https://github.com/semaphoreio/agent-cli.git
-cd agent-cli
+git clone https://github.com/semaphoreio/sem-ai.git
+cd sem-ai
 make install
 ```
 
@@ -24,21 +24,21 @@ Requires Go 1.25+.
 
 ```shell
 # Connect to your org (get token at https://me.semaphoreci.com/account)
-sem-agent connect myorg.semaphoreci.com YOUR_API_TOKEN
+sem-ai connect myorg.semaphoreci.com YOUR_API_TOKEN
 
 # Check CI status
-sem-agent status --project my-app --branch main
+sem-ai status --project my-app --branch main
 
 # Diagnose a failure — one command, full root cause
-sem-agent diagnose --project my-app --branch main
+sem-ai diagnose --project my-app --branch main
 ```
 
 ## MCP server
 
-Run sem-agent as a persistent MCP server. Starts once, handles all tool calls through the in-memory command tree.
+Run sem-ai as a persistent MCP server. Starts once, handles all tool calls through the in-memory command tree.
 
 ```shell
-sem-agent mcp
+sem-ai mcp
 ```
 
 ### Claude Code
@@ -49,7 +49,7 @@ Add to `.mcp.json` in your project:
 {
   "mcpServers": {
     "semaphore": {
-      "command": "sem-agent",
+      "command": "sem-ai",
       "args": ["mcp"]
     }
   }
@@ -63,8 +63,8 @@ All commands become native MCP tools (`project_list`, `diagnose`, `status`, `bla
 Install structured skill definitions for AI agents:
 
 ```shell
-sem-agent install-skills claude
-sem-agent install-skills codex
+sem-ai install-skills claude
+sem-ai install-skills codex
 ```
 
 Skills follow the [Agent Skills](https://agentskills.io) standard and give agents context on when and how to use each command without reading documentation.
@@ -110,6 +110,19 @@ Skills follow the [Agent Skills](https://agentskills.io) standard and give agent
 | `job log <id>` | Fetch structured job logs |
 | `job stop <id>` | Stop a running job |
 
+### Analytics
+
+| Command | Description |
+|---------|-------------|
+| `analytics summary --project <p>` | Pass rate, duration, failures, deploys — all in one |
+| `analytics duration --project <p>` | Duration trends (avg, p50, p95) with phase breakdown |
+| `analytics failures --project <p>` | Block-level failure rates and failure reasons |
+| `analytics queue --project <p>` | Queue wait time stats |
+| `analytics deploys --project <p>` | Deploy frequency (per day / per week) |
+| `analytics trend --project <p>` | Week-over-week trends for all key metrics |
+
+All analytics commands accept `--project` (auto-detected from git), `--days`, `--branch`, and `--limit`. `analytics trend` uses `--weeks` instead of `--days`.
+
 ### Test intelligence
 
 | Command | Description |
@@ -140,11 +153,10 @@ Skills follow the [Agent Skills](https://agentskills.io) standard and give agent
 | `secret update <name>` | Update a secret |
 | `secret delete <name>` | Delete a secret |
 
-### Dashboards, notifications, tasks, agents
+### Notifications, tasks, agents
 
 | Command | Description |
 |---------|-------------|
-| `dashboard list/show/create/delete` | Dashboard management |
 | `notification list/show/create/delete` | Notification rules |
 | `task list/show/create/run/delete` | Scheduled tasks |
 | `agent types/show/list/delete` | Self-hosted agent management |
@@ -176,6 +188,8 @@ These compose multiple API calls into a single operation.
 | `status` | CI status for a branch — pipeline state, block results |
 | `diagnose` | Full failure diagnosis — logs, test results, root cause |
 | `health` | Project health — pass rates, trends, deploy status, verdict |
+| `analytics summary` | All-in-one analytics overview for a project over a time window |
+| `analytics trend` | Week-over-week trends — pass rate, duration, queue, failures |
 | `critical-path <id>` | Longest dependency chain (bottleneck) |
 | `blast-radius <id>` | Root failures vs cascading cancellations |
 | `rerun-failed <id>` | Partial rebuild of failed blocks only |
@@ -187,16 +201,16 @@ Run commands in a real Semaphore CI environment before pushing. Creates a warm V
 
 ```shell
 # Start a testbox
-sem-agent testbox warmup --project my-app
+sem-ai testbox warmup --project my-app
 
 # Run tests in real CI env
-sem-agent testbox run --id <id> "go test ./..."
+sem-ai testbox run --id <id> "go test ./..."
 
 # Interactive SSH
-sem-agent testbox ssh --id <id>
+sem-ai testbox ssh --id <id>
 
 # Stop when done
-sem-agent testbox stop --id <id>
+sem-ai testbox stop --id <id>
 ```
 
 ## Output
@@ -204,9 +218,9 @@ sem-agent testbox stop --id <id>
 All commands output JSON by default:
 
 ```shell
-sem-agent status --project my-app          # JSON
-sem-agent status --project my-app -f table # human-readable table
-sem-agent status --project my-app -f yaml  # YAML
+sem-ai status --project my-app          # JSON
+sem-ai status --project my-app -f table # human-readable table
+sem-ai status --project my-app -f yaml  # YAML
 ```
 
 Errors are structured JSON on stderr:
@@ -217,12 +231,12 @@ Errors are structured JSON on stderr:
 
 ## Configuration
 
-sem-agent uses `~/.sem.yaml` — the same config file as the [Semaphore CLI](https://github.com/semaphoreci/cli). If you already have `sem` configured, sem-agent works immediately.
+sem-ai uses `~/.sem.yaml` — the same config file as the [Semaphore CLI](https://github.com/semaphoreci/cli). If you already have `sem` configured, sem-ai works immediately.
 
 ```shell
-sem-agent connect myorg.semaphoreci.com YOUR_TOKEN  # add/update context
-sem-agent context list                               # list all orgs
-sem-agent context show                               # show active org
+sem-ai connect myorg.semaphoreci.com YOUR_TOKEN  # add/update context
+sem-ai context list                               # list all orgs
+sem-ai context show                               # show active org
 ```
 
 ## Development

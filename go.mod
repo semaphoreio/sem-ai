@@ -1,4 +1,4 @@
-module github.com/semaphoreio/agent-cli
+module github.com/semaphoreio/sem-ai
 
 go 1.25.5
 

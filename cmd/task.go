@@ -5,9 +5,9 @@ import (
 	"fmt"
 	"net/url"
 
-	"github.com/semaphoreio/agent-cli/pkg/client"
-	"github.com/semaphoreio/agent-cli/pkg/config"
-	"github.com/semaphoreio/agent-cli/pkg/output"
+	"github.com/semaphoreio/sem-ai/pkg/client"
+	"github.com/semaphoreio/sem-ai/pkg/config"
+	"github.com/semaphoreio/sem-ai/pkg/output"
 	"github.com/spf13/cobra"
 )
 
@@ -21,10 +21,10 @@ var taskProjectFlag string
 var taskListCmd = &cobra.Command{
 	Use:   "list",
 	Short: "List scheduled tasks for a project",
-	Example: `  sem-agent task list --project my-project`,
+	Example: `  sem-ai task list --project my-project`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		if !config.IsConfigured() {
-			return fmt.Errorf("not configured — run 'sem-agent connect' first")
+			return fmt.Errorf("not configured — run 'sem-ai connect' first")
 		}
 		projectID, err := resolveProjectID(taskProjectFlag)
 		if err != nil {
@@ -54,10 +54,10 @@ var taskShowCmd = &cobra.Command{
 	Use:     "show <id>",
 	Short:   "Show scheduled task details",
 	Args:    cobra.ExactArgs(1),
-	Example: `  sem-agent task show <task-id>`,
+	Example: `  sem-ai task show <task-id>`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		if !config.IsConfigured() {
-			return fmt.Errorf("not configured — run 'sem-agent connect' first")
+			return fmt.Errorf("not configured — run 'sem-ai connect' first")
 		}
 		c := client.New()
 		resp, err := c.Get("tasks", args[0])
@@ -80,10 +80,10 @@ var taskRunCmd = &cobra.Command{
 	Use:     "run <id>",
 	Short:   "Trigger a scheduled task to run now",
 	Args:    cobra.ExactArgs(1),
-	Example: `  sem-agent task run <task-id>`,
+	Example: `  sem-ai task run <task-id>`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		if !config.IsConfigured() {
-			return fmt.Errorf("not configured — run 'sem-agent connect' first")
+			return fmt.Errorf("not configured — run 'sem-ai connect' first")
 		}
 		c := client.New()
 		resp, err := c.PostAction("tasks", args[0], "run_now", nil)
@@ -109,10 +109,10 @@ var taskDeleteCmd = &cobra.Command{
 	Use:     "delete <id>",
 	Short:   "Delete a scheduled task",
 	Args:    cobra.ExactArgs(1),
-	Example: `  sem-agent task delete <task-id>`,
+	Example: `  sem-ai task delete <task-id>`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		if !config.IsConfigured() {
-			return fmt.Errorf("not configured — run 'sem-agent connect' first")
+			return fmt.Errorf("not configured — run 'sem-ai connect' first")
 		}
 		c := client.New()
 		resp, err := c.Delete("tasks", args[0])
@@ -141,10 +141,10 @@ var taskCreateCmd = &cobra.Command{
 	Use:   "create <name>",
 	Short: "Create a scheduled task (periodic job)",
 	Args:  cobra.ExactArgs(1),
-	Example: `  sem-agent task create nightly-tests --project my-app --branch main --file .semaphore/nightly.yml --cron "0 2 * * *"`,
+	Example: `  sem-ai task create nightly-tests --project my-app --branch main --file .semaphore/nightly.yml --cron "0 2 * * *"`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		if !config.IsConfigured() {
-			return fmt.Errorf("not configured — run 'sem-agent connect' first")
+			return fmt.Errorf("not configured — run 'sem-ai connect' first")
 		}
 		projectID, err := resolveProjectID(taskCreateProjectFlag)
 		if err != nil {

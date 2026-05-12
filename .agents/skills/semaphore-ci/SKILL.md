@@ -1,53 +1,53 @@
 ---
 name: semaphore-ci
-description: Manage Semaphore CI/CD via sem-agent. Use when the user asks about CI status, pipeline failures, test results, deployments, secrets, or anything related to their Semaphore pipelines and workflows.
+description: Manage Semaphore CI/CD via sem-ai. Use when the user asks about CI status, pipeline failures, test results, deployments, secrets, or anything related to their Semaphore pipelines and workflows.
 when_to_use: >
   Trigger on: "CI status", "pipeline failed", "why did CI fail", "test results",
   "deploy to staging", "rerun the pipeline", "what's flaky", "check the build",
   "show me the logs", "promote to production", "secrets", "notifications",
   "scheduled tasks", "deployment targets", "validate yaml", "project health"
-allowed-tools: Bash(sem-agent *)
+allowed-tools: Bash(sem-ai *)
 ---
 
-# Semaphore CI/CD — via sem-agent
+# Semaphore CI/CD — via sem-ai
 
-`sem-agent` is a CLI that gives you full control over Semaphore CI/CD. Every command returns structured JSON. 77 commands covering projects, workflows, pipelines, jobs, tests, artifacts, secrets, deploys, and more.
+`sem-ai` is a CLI that gives you full control over Semaphore CI/CD. Every command returns structured JSON. 77 commands covering projects, workflows, pipelines, jobs, tests, artifacts, secrets, deploys, and more.
 
 ## Setup
 
 ```bash
 # Connect (one-time). Get your token at https://me.semaphoreci.com/account
-sem-agent connect <your-org>.semaphoreci.com <your-api-token>
+sem-ai connect <your-org>.semaphoreci.com <your-api-token>
 
 # Verify
-sem-agent context show
+sem-ai context show
 ```
 
 ## Self-orientation
 
 ```bash
-sem-agent discover                  # Full capability map (77 commands + flags + examples)
-sem-agent <any-command> --examples  # Usage examples for any command
+sem-ai discover                  # Full capability map (77 commands + flags + examples)
+sem-ai <any-command> --examples  # Usage examples for any command
 ```
 
 ## Quick reference
 
 | Task | Command |
 |------|---------|
-| CI status | `sem-agent status --project <p> --branch <b>` |
-| Why did CI fail? | `sem-agent diagnose <workflow-id>` |
-| Project health | `sem-agent health --project <p>` |
-| Job logs | `sem-agent job log <job-id>` |
-| Test results | `sem-agent test summary --pipeline <id>` |
-| Rerun workflow | `sem-agent workflow rerun <id>` |
-| Rebuild failed only | `sem-agent rerun-failed <pipeline-id>` |
-| Deploy to staging | `sem-agent pipeline promote <id> --target "Staging" --confirm` |
-| Deploy and wait | `sem-agent promote-and-wait <id> --target "Staging" --confirm` |
-| Validate YAML | `sem-agent yaml validate --file .semaphore/semaphore.yml` |
-| Server diagnostics | `sem-agent troubleshoot workflow <id>` |
-| List secrets | `sem-agent secret list` |
-| Flaky tests | `sem-agent test flaky --project <p>` |
-| Test locally in CI env | `sem-agent testbox warmup --project <p>` then `sem-agent testbox run --id <id> "cmd"` |
+| CI status | `sem-ai status --project <p> --branch <b>` |
+| Why did CI fail? | `sem-ai diagnose <workflow-id>` |
+| Project health | `sem-ai health --project <p>` |
+| Job logs | `sem-ai job log <job-id>` |
+| Test results | `sem-ai test summary --pipeline <id>` |
+| Rerun workflow | `sem-ai workflow rerun <id>` |
+| Rebuild failed only | `sem-ai rerun-failed <pipeline-id>` |
+| Deploy to staging | `sem-ai pipeline promote <id> --target "Staging" --confirm` |
+| Deploy and wait | `sem-ai promote-and-wait <id> --target "Staging" --confirm` |
+| Validate YAML | `sem-ai yaml validate --file .semaphore/semaphore.yml` |
+| Server diagnostics | `sem-ai troubleshoot workflow <id>` |
+| List secrets | `sem-ai secret list` |
+| Flaky tests | `sem-ai test flaky --project <p>` |
+| Test locally in CI env | `sem-ai testbox warmup --project <p>` then `sem-ai testbox run --id <id> "cmd"` |
 
 ## Sub-skills — load for deeper context
 

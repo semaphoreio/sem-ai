@@ -1,7 +1,7 @@
 package cmd
 
 import (
-	"github.com/semaphoreio/agent-cli/pkg/output"
+	"github.com/semaphoreio/sem-ai/pkg/output"
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
 )
@@ -10,17 +10,17 @@ var discoverCmd = &cobra.Command{
 	Use:     "discover",
 	Short:   "Introspect all registered commands — capability map for agents",
 	Long:    "Returns a structured map of every command, its flags, and examples. Designed for AI agents to self-orient.",
-	Example: "  sem-agent discover\n  sem-agent discover --format table",
+	Example: "  sem-ai discover\n  sem-ai discover --format table",
 	RunE: func(cmd *cobra.Command, args []string) error {
 		caps := buildCapabilityMap(rootCmd)
 
 		result := map[string]any{
 			"commands": caps,
 			"tips": map[string]string{
-				"setup":       "Run 'sem-agent connect <host> <token>' to authenticate",
-				"examples":    "Run 'sem-agent <command> --examples' for usage examples on any command",
-				"skills":      "Run 'sem-agent install-skills' to install AI agent skill definitions",
-				"debug":       "For CI failures, start with 'sem-agent diagnose <workflow-id>'",
+				"setup":       "Run 'sem-ai connect <host> <token>' to authenticate",
+				"examples":    "Run 'sem-ai <command> --examples' for usage examples on any command",
+				"skills":      "Run 'sem-ai install-skills' to install AI agent skill definitions",
+				"debug":       "For CI failures, start with 'sem-ai diagnose <workflow-id>'",
 				"format":      "All commands output JSON. Use --format table for human display",
 			},
 		}

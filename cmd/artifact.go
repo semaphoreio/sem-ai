@@ -10,9 +10,9 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/semaphoreio/agent-cli/pkg/client"
-	"github.com/semaphoreio/agent-cli/pkg/config"
-	"github.com/semaphoreio/agent-cli/pkg/output"
+	"github.com/semaphoreio/sem-ai/pkg/client"
+	"github.com/semaphoreio/sem-ai/pkg/config"
+	"github.com/semaphoreio/sem-ai/pkg/output"
 	"github.com/spf13/cobra"
 )
 
@@ -29,12 +29,12 @@ var (
 var artifactListCmd = &cobra.Command{
 	Use:   "list",
 	Short: "List artifacts for a job, workflow, or project",
-	Example: `  sem-agent artifact list --scope jobs --id <job-id>
-  sem-agent artifact list --scope workflows --id <workflow-id>
-  sem-agent artifact list --scope projects --id <project-id>`,
+	Example: `  sem-ai artifact list --scope jobs --id <job-id>
+  sem-ai artifact list --scope workflows --id <workflow-id>
+  sem-ai artifact list --scope projects --id <project-id>`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		if !config.IsConfigured() {
-			return fmt.Errorf("not configured — run 'sem-agent connect' first")
+			return fmt.Errorf("not configured — run 'sem-ai connect' first")
 		}
 		if artifactScope == "" || artifactScopeID == "" {
 			output.Error("invalid_args", "--scope and --id are required", 1)
@@ -76,11 +76,11 @@ var (
 var artifactGetCmd = &cobra.Command{
 	Use:   "get",
 	Short: "Download an artifact via signed URL",
-	Example: `  sem-agent artifact get --scope jobs --id <job-id> --path agent/job_logs.txt.gz
-  sem-agent artifact get --scope jobs --id <job-id> --path test-results/junit.json --output ./results.json`,
+	Example: `  sem-ai artifact get --scope jobs --id <job-id> --path agent/job_logs.txt.gz
+  sem-ai artifact get --scope jobs --id <job-id> --path test-results/junit.json --output ./results.json`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		if !config.IsConfigured() {
-			return fmt.Errorf("not configured — run 'sem-agent connect' first")
+			return fmt.Errorf("not configured — run 'sem-ai connect' first")
 		}
 		if artifactGetScope == "" || artifactGetScopeID == "" || artifactGetPath == "" {
 			output.Error("invalid_args", "--scope, --id, and --path are required", 1)

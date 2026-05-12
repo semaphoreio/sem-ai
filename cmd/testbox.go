@@ -7,9 +7,9 @@ import (
 	"os/exec"
 	"time"
 
-	"github.com/semaphoreio/agent-cli/pkg/client"
-	"github.com/semaphoreio/agent-cli/pkg/config"
-	"github.com/semaphoreio/agent-cli/pkg/output"
+	"github.com/semaphoreio/sem-ai/pkg/client"
+	"github.com/semaphoreio/sem-ai/pkg/config"
+	"github.com/semaphoreio/sem-ai/pkg/output"
 	"github.com/spf13/cobra"
 )
 
@@ -31,12 +31,12 @@ var (
 var testboxWarmupCmd = &cobra.Command{
 	Use:   "warmup",
 	Short: "Start a testbox — warm CI environment for your project",
-	Example: `  sem-agent testbox warmup --project my-app
-  sem-agent testbox warmup --project my-app --machine f1-standard-4 --duration 30m
-  sem-agent testbox warmup --project my-app --os-image ubuntu2204`,
+	Example: `  sem-ai testbox warmup --project my-app
+  sem-ai testbox warmup --project my-app --machine f1-standard-4 --duration 30m
+  sem-ai testbox warmup --project my-app --os-image ubuntu2204`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		if !config.IsConfigured() {
-			return fmt.Errorf("not configured — run 'sem-agent connect' first")
+			return fmt.Errorf("not configured — run 'sem-ai connect' first")
 		}
 
 		project := testboxWarmupProjectFlag
@@ -63,7 +63,7 @@ var testboxWarmupCmd = &cobra.Command{
 		jobSpec := map[string]any{
 			"apiVersion": "v1alpha",
 			"kind":       "Job",
-			"metadata":   map[string]string{"name": "sem-agent testbox"},
+			"metadata":   map[string]string{"name": "sem-ai testbox"},
 			"spec": map[string]any{
 				"project_id": projectID,
 				"agent": map[string]any{
@@ -155,9 +155,9 @@ var testboxWarmupCmd = &cobra.Command{
 			},
 			"expires_in": testboxWarmupDurationFlag.String(),
 			"usage": map[string]string{
-				"run":  fmt.Sprintf("sem-agent testbox run --id %s \"your-command\"", jobID),
-				"ssh":  fmt.Sprintf("sem-agent testbox ssh --id %s", jobID),
-				"stop": fmt.Sprintf("sem-agent testbox stop --id %s", jobID),
+				"run":  fmt.Sprintf("sem-ai testbox run --id %s \"your-command\"", jobID),
+				"ssh":  fmt.Sprintf("sem-ai testbox ssh --id %s", jobID),
+				"stop": fmt.Sprintf("sem-ai testbox stop --id %s", jobID),
 			},
 		}
 
@@ -203,8 +203,8 @@ var testboxRunCmd = &cobra.Command{
 	Use:   "run <command>",
 	Short: "Sync local changes and run a command in the testbox",
 	Args:  cobra.MinimumNArgs(1),
-	Example: `  sem-agent testbox run --id <testbox-id> "go test ./..."
-  sem-agent testbox run --id <testbox-id> "make build"`,
+	Example: `  sem-ai testbox run --id <testbox-id> "go test ./..."
+  sem-ai testbox run --id <testbox-id> "make build"`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		if testboxRunID == "" {
 			output.Error("invalid_args", "--id is required (testbox ID from warmup)", 1)
@@ -290,7 +290,7 @@ var testboxSSHID string
 var testboxSSHCmd = &cobra.Command{
 	Use:     "ssh",
 	Short:   "Open an interactive SSH session to the testbox",
-	Example: `  sem-agent testbox ssh --id <testbox-id>`,
+	Example: `  sem-ai testbox ssh --id <testbox-id>`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		if testboxSSHID == "" {
 			output.Error("invalid_args", "--id is required", 1)
@@ -356,7 +356,7 @@ var testboxStopID string
 var testboxStopCmd = &cobra.Command{
 	Use:     "stop",
 	Short:   "Stop a running testbox",
-	Example: `  sem-agent testbox stop --id <testbox-id>`,
+	Example: `  sem-ai testbox stop --id <testbox-id>`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		if testboxStopID == "" {
 			output.Error("invalid_args", "--id is required", 1)

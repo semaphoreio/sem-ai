@@ -6,9 +6,9 @@ import (
 	"net/url"
 	"strings"
 
-	"github.com/semaphoreio/agent-cli/pkg/client"
-	"github.com/semaphoreio/agent-cli/pkg/config"
-	"github.com/semaphoreio/agent-cli/pkg/output"
+	"github.com/semaphoreio/sem-ai/pkg/client"
+	"github.com/semaphoreio/sem-ai/pkg/config"
+	"github.com/semaphoreio/sem-ai/pkg/output"
 	"github.com/spf13/cobra"
 )
 
@@ -21,10 +21,10 @@ var jobShowCmd = &cobra.Command{
 	Use:     "show <id>",
 	Short:   "Show job details",
 	Args:    cobra.ExactArgs(1),
-	Example: "  sem-agent job show job-uuid-here",
+	Example: "  sem-ai job show job-uuid-here",
 	RunE: func(cmd *cobra.Command, args []string) error {
 		if !config.IsConfigured() {
-			return fmt.Errorf("not configured — run 'sem-agent connect' first")
+			return fmt.Errorf("not configured — run 'sem-ai connect' first")
 		}
 		c := client.New()
 		resp, err := c.Get("jobs", args[0])
@@ -52,11 +52,11 @@ var jobLogCmd = &cobra.Command{
 	Short: "Fetch job logs",
 	Long:  "Fetches and displays job logs. Returns structured log events with timestamps, commands, output, and exit codes.",
 	Args:  cobra.ExactArgs(1),
-	Example: `  sem-agent job log job-uuid-here
-  sem-agent job log job-uuid-here --format json`,
+	Example: `  sem-ai job log job-uuid-here
+  sem-ai job log job-uuid-here --format json`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		if !config.IsConfigured() {
-			return fmt.Errorf("not configured — run 'sem-agent connect' first")
+			return fmt.Errorf("not configured — run 'sem-ai connect' first")
 		}
 		c := client.New()
 		resp, err := c.Get("logs", args[0])
@@ -137,11 +137,11 @@ var jobListStatesFlag []string
 var jobListCmd = &cobra.Command{
 	Use:   "list",
 	Short: "List jobs by state",
-	Example: `  sem-agent job list --states RUNNING,QUEUED
-  sem-agent job list --states FINISHED`,
+	Example: `  sem-ai job list --states RUNNING,QUEUED
+  sem-ai job list --states FINISHED`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		if !config.IsConfigured() {
-			return fmt.Errorf("not configured — run 'sem-agent connect' first")
+			return fmt.Errorf("not configured — run 'sem-ai connect' first")
 		}
 		c := client.New()
 		params := url.Values{}
@@ -168,10 +168,10 @@ var jobStopCmd = &cobra.Command{
 	Use:     "stop <id>",
 	Short:   "Stop a running job",
 	Args:    cobra.ExactArgs(1),
-	Example: `  sem-agent job stop job-uuid-here`,
+	Example: `  sem-ai job stop job-uuid-here`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		if !config.IsConfigured() {
-			return fmt.Errorf("not configured — run 'sem-agent connect' first")
+			return fmt.Errorf("not configured — run 'sem-ai connect' first")
 		}
 		c := client.New()
 		path := fmt.Sprintf("jobs/%s/stop", args[0])

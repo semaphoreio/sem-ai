@@ -4,8 +4,8 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/semaphoreio/agent-cli/pkg/client"
-	"github.com/semaphoreio/agent-cli/pkg/output"
+	"github.com/semaphoreio/sem-ai/pkg/client"
+	"github.com/semaphoreio/sem-ai/pkg/output"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 )
@@ -14,7 +14,7 @@ var connectCmd = &cobra.Command{
 	Use:   "connect <host> <token>",
 	Short: "Connect to a Semaphore organization",
 	Args:  cobra.ExactArgs(2),
-	Example: `  sem-agent connect myorg.semaphoreci.com YOUR_API_TOKEN`,
+	Example: `  sem-ai connect myorg.semaphoreci.com YOUR_API_TOKEN`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		host := args[0]
 		token := args[1]

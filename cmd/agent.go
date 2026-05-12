@@ -5,9 +5,9 @@ import (
 	"fmt"
 	"net/url"
 
-	"github.com/semaphoreio/agent-cli/pkg/client"
-	"github.com/semaphoreio/agent-cli/pkg/config"
-	"github.com/semaphoreio/agent-cli/pkg/output"
+	"github.com/semaphoreio/sem-ai/pkg/client"
+	"github.com/semaphoreio/sem-ai/pkg/config"
+	"github.com/semaphoreio/sem-ai/pkg/output"
 	"github.com/spf13/cobra"
 )
 
@@ -19,10 +19,10 @@ var agentCmd = &cobra.Command{
 var agentTypesCmd = &cobra.Command{
 	Use:     "types",
 	Short:   "List self-hosted agent types",
-	Example: `  sem-agent agent types`,
+	Example: `  sem-ai agent types`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		if !config.IsConfigured() {
-			return fmt.Errorf("not configured — run 'sem-agent connect' first")
+			return fmt.Errorf("not configured — run 'sem-ai connect' first")
 		}
 		c := client.New()
 		resp, err := c.List("self_hosted_agent_types")
@@ -45,10 +45,10 @@ var agentShowCmd = &cobra.Command{
 	Use:     "show <type-name>",
 	Short:   "Show agent type details",
 	Args:    cobra.ExactArgs(1),
-	Example: `  sem-agent agent show s1-my-type`,
+	Example: `  sem-ai agent show s1-my-type`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		if !config.IsConfigured() {
-			return fmt.Errorf("not configured — run 'sem-agent connect' first")
+			return fmt.Errorf("not configured — run 'sem-ai connect' first")
 		}
 		c := client.New()
 		resp, err := c.Get("self_hosted_agent_types", args[0])
@@ -72,10 +72,10 @@ var agentListTypeFlag string
 var agentListCmd = &cobra.Command{
 	Use:   "list",
 	Short: "List agents for a given type",
-	Example: `  sem-agent agent list --type s1-my-type`,
+	Example: `  sem-ai agent list --type s1-my-type`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		if !config.IsConfigured() {
-			return fmt.Errorf("not configured — run 'sem-agent connect' first")
+			return fmt.Errorf("not configured — run 'sem-ai connect' first")
 		}
 		if agentListTypeFlag == "" {
 			output.Error("invalid_args", "--type is required", 1)
@@ -104,10 +104,10 @@ var agentTypeDeleteCmd = &cobra.Command{
 	Use:     "delete <type-name>",
 	Short:   "Delete a self-hosted agent type",
 	Args:    cobra.ExactArgs(1),
-	Example: `  sem-agent agent delete s1-my-type`,
+	Example: `  sem-ai agent delete s1-my-type`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		if !config.IsConfigured() {
-			return fmt.Errorf("not configured — run 'sem-agent connect' first")
+			return fmt.Errorf("not configured — run 'sem-ai connect' first")
 		}
 		c := client.New()
 		resp, err := c.Delete("self_hosted_agent_types", args[0])

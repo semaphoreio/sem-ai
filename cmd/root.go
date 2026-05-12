@@ -6,8 +6,8 @@ import (
 	"log"
 	"os"
 
-	"github.com/semaphoreio/agent-cli/pkg/config"
-	"github.com/semaphoreio/agent-cli/pkg/output"
+	"github.com/semaphoreio/sem-ai/pkg/config"
+	"github.com/semaphoreio/sem-ai/pkg/output"
 
 	homedir "github.com/mitchellh/go-homedir"
 	"github.com/spf13/cobra"
@@ -27,9 +27,9 @@ var (
 )
 
 var rootCmd = &cobra.Command{
-	Use:   "sem-agent",
+	Use:   "sem-ai",
 	Short: "Agent-first CLI for Semaphore CI/CD",
-	Long:  "sem-agent — structured, composable CLI designed for AI agents to drive the full CI/CD loop.",
+	Long:  "sem-ai — structured, composable CLI designed for AI agents to drive the full CI/CD loop.",
 	PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
 		if !verboseFlag {
 			log.SetOutput(io.Discard)

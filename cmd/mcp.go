@@ -11,7 +11,7 @@ import (
 
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/mark3labs/mcp-go/server"
-	"github.com/semaphoreio/agent-cli/pkg/output"
+	"github.com/semaphoreio/sem-ai/pkg/output"
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
 )
@@ -22,7 +22,7 @@ var executeMu sync.Mutex
 var mcpCmd = &cobra.Command{
 	Use:   "mcp",
 	Short: "Start MCP (Model Context Protocol) stdio server",
-	Long: `Starts a persistent MCP server over stdin/stdout, exposing all sem-agent
+	Long: `Starts a persistent MCP server over stdin/stdout, exposing all sem-ai
 commands as MCP tools. Config is loaded once at startup. Each tool call
 routes directly through the in-memory cobra tree — no process spawn.
 
@@ -32,7 +32,7 @@ Add to .mcp.json in your project:
   {
     "mcpServers": {
       "semaphore": {
-        "command": "sem-agent",
+        "command": "sem-ai",
         "args": ["mcp"]
       }
     }
@@ -51,7 +51,7 @@ func runMCPServer() error {
 	log.SetOutput(io.Discard)
 
 	s := server.NewMCPServer(
-		"sem-agent",
+		"sem-ai",
 		Version,
 		server.WithToolCapabilities(false),
 	)

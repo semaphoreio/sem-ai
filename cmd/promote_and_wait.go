@@ -6,9 +6,9 @@ import (
 	"net/url"
 	"time"
 
-	"github.com/semaphoreio/agent-cli/pkg/client"
-	"github.com/semaphoreio/agent-cli/pkg/config"
-	"github.com/semaphoreio/agent-cli/pkg/output"
+	"github.com/semaphoreio/sem-ai/pkg/client"
+	"github.com/semaphoreio/sem-ai/pkg/config"
+	"github.com/semaphoreio/sem-ai/pkg/output"
 	"github.com/spf13/cobra"
 )
 
@@ -26,13 +26,13 @@ var promoteAndWaitCmd = &cobra.Command{
 returns final result. Essential for agents that deploy then verify.`,
 	Args: cobra.ExactArgs(1),
 	Example: `  # Dry run
-  sem-agent promote-and-wait <pipeline-id> --target "Staging Deploy"
+  sem-ai promote-and-wait <pipeline-id> --target "Staging Deploy"
 
   # Execute and wait
-  sem-agent promote-and-wait <pipeline-id> --target "Staging Deploy" --confirm`,
+  sem-ai promote-and-wait <pipeline-id> --target "Staging Deploy" --confirm`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		if !config.IsConfigured() {
-			return fmt.Errorf("not configured — run 'sem-agent connect' first")
+			return fmt.Errorf("not configured — run 'sem-ai connect' first")
 		}
 		pipelineID := args[0]
 
