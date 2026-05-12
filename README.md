@@ -10,6 +10,8 @@ Agent-first CLI for [Semaphore CI/CD](https://semaphoreci.com). Structured JSON 
 - **Compound commands** — `diagnose` composes workflow → pipeline → failed jobs → logs → parsed test results into a single call
 - **Compatible** — shares `~/.sem.yaml` with the [Semaphore CLI](https://github.com/semaphoreci/cli). Same tokens, same contexts
 
+**Full reference**: [docs.semaphore.io/reference/sem-ai-cli](https://docs.semaphore.io/reference/sem-ai-cli)
+
 ## Install
 
 ```shell
