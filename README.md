@@ -1,6 +1,6 @@
 # sem-ai
 
-Agent-first CLI for [Semaphore CI/CD](https://semaphoreci.com). Structured JSON output, self-discovery, composable commands, and an embedded MCP server — built for AI agents to drive the full CI/CD loop without a browser.
+Agent-first CLI for [Semaphore CI/CD](https://semaphore.io). Structured JSON output, self-discovery, composable commands, and an embedded MCP server — built for AI agents to drive the full CI/CD loop without a browser.
 
 ## Why sem-ai
 
@@ -8,7 +8,7 @@ Agent-first CLI for [Semaphore CI/CD](https://semaphoreci.com). Structured JSON 
 - **Self-discovery** — `sem-ai discover` returns a full capability map. Every command supports `--examples`
 - **MCP server** — `sem-ai mcp` exposes all commands as native tools for Claude Code, Cursor, VS Code, and any MCP client
 - **Compound commands** — `diagnose` composes workflow → pipeline → failed jobs → logs → parsed test results into a single call
-- **Compatible** — shares `~/.sem.yaml` with the [Semaphore CLI](https://github.com/semaphoreci/cli). Same tokens, same contexts
+- **Compatible** — shares `~/.sem.yaml` with the [legacy Semaphore CLI](https://github.com/semaphoreci/cli). Same tokens, same contexts
 
 **Full reference**: [docs.semaphore.io/reference/sem-ai-cli](https://docs.semaphore.io/reference/sem-ai-cli)
 
@@ -233,7 +233,7 @@ Errors are structured JSON on stderr:
 
 ## Configuration
 
-sem-ai uses `~/.sem.yaml` — the same config file as the [Semaphore CLI](https://github.com/semaphoreci/cli). If you already have `sem` configured, sem-ai works immediately.
+sem-ai uses `~/.sem.yaml` — the same config file as the [legacy Semaphore CLI](https://github.com/semaphoreci/cli). If you already have `sem` configured, sem-ai works immediately.
 
 ```shell
 sem-ai connect myorg.semaphoreci.com YOUR_TOKEN  # add/update context
