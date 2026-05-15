@@ -1,5 +1,6 @@
 sem-ai
 *.exe
+.planning/
 .DS_Store
 .env
 *.env
