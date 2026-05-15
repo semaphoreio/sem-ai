@@ -168,6 +168,12 @@ func (c *Client) Delete(kind, id string) (*Response, error) {
 	return c.doWithRetry("DELETE", u, nil)
 }
 
+// DeletePath sends a DELETE request to a custom path under /api/{version}/.
+func (c *Client) DeletePath(path string) (*Response, error) {
+	u := fmt.Sprintf("https://%s/api/%s/%s", c.host, c.apiVersion, path)
+	return c.doWithRetry("DELETE", u, nil)
+}
+
 // DeleteWithParams sends a DELETE request with query parameters.
 func (c *Client) DeleteWithParams(kind, id string, params url.Values) (*Response, error) {
 	u := fmt.Sprintf("https://%s/api/%s/%s/%s?%s", c.host, c.apiVersion, kind, id, params.Encode())
