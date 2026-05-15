@@ -1,0 +1,47 @@
+version: v1.0
+name: sem-ai CI
+
+agent:
+  machine:
+    type: e2-standard-2
+    os_image: ubuntu2204
+
+blocks:
+  - name: Lint + Vet
+    dependencies: []
+    task:
+      jobs:
+        - name: golangci-lint + go vet
+          commands:
+            - checkout
+            - go vet ./...
+            - golangci-lint run ./...
+
+  - name: Test
+    dependencies: [Lint + Vet]
+    task:
+      jobs:
+        - name: Race + coverage
+          commands:
+            - checkout
+            - go test -race -coverprofile=coverage.out ./...
+            - go tool cover -func=coverage.out
+            - artifact push workflow coverage.out
+
+  - name: Build matrix
+    dependencies: [Test]
+    task:
+      jobs:
+        - name: Build
+          matrix:
+            - env_var: GOOS
+              values: [darwin, linux, windows]
+            - env_var: GOARCH
+              values: [amd64, arm64]
+          commands:
+            - checkout
+            - 'if [ "$GOOS" = "windows" ] && [ "$GOARCH" = "arm64" ]; then exit 0; fi'
+            - export NAME="sem-ai-${GOOS}-${GOARCH}"
+            - 'if [ "$GOOS" = "windows" ]; then NAME="${NAME}.exe"; fi'
+            - go build -o "${NAME}" ./
+            - artifact push workflow "${NAME}"
