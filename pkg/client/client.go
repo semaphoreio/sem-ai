@@ -174,15 +174,18 @@ func (c *Client) DeleteWithParams(kind, id string, params url.Values) (*Response
 	return c.doWithRetry("DELETE", u, nil)
 }
 
-// PostYAML sends a POST with YAML content type (for yaml validate endpoint).
+// PostYAML sends a POST to the YAML validation endpoint.
+// The Semaphore v1alpha /yaml endpoint expects a form-encoded body with a
+// yaml_definition parameter, not a raw YAML body.
 func (c *Client) PostYAML(kind string, yamlBody []byte) (*Response, error) {
 	u := fmt.Sprintf("https://%s/api/%s/%s", c.host, c.apiVersion, kind)
 	log.Printf("POST (yaml) %s", u)
-	req, err := http.NewRequest("POST", u, bytes.NewReader(yamlBody))
+	form := url.Values{"yaml_definition": {string(yamlBody)}}
+	req, err := http.NewRequest("POST", u, strings.NewReader(form.Encode()))
 	if err != nil {
 		return nil, err
 	}
-	req.Header.Set("Content-Type", "application/yaml")
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	req.Header.Set("Authorization", fmt.Sprintf("Token %s", c.token))
 	req.Header.Set("User-Agent", UserAgent)
 	resp, err := c.httpClient.Do(req)

@@ -3,6 +3,7 @@ package client
 import (
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -555,5 +556,61 @@ func TestHTTPMethods(t *testing.T) {
 				t.Errorf("HTTP method = %q, want %q", gotMethod, tc.wantMethod)
 			}
 		})
+	}
+}
+
+// ---- PostYAML wire-format tests ---------------------------------------------
+
+func TestPostYAMLFormEncodedBody(t *testing.T) {
+	var gotContentType string
+	var gotBody []byte
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotContentType = r.Header.Get("Content-Type")
+		gotBody, _ = io.ReadAll(r.Body)
+		w.WriteHeader(200)
+		w.Write([]byte(`{"message":"YAML definition is valid."}`))
+	}))
+	defer srv.Close()
+
+	host := strings.TrimPrefix(srv.URL, "http://")
+	c := newTestClient(host, "tok")
+	yaml := []byte("version: v1.0\nname: test\n")
+	resp, err := c.PostYAML("yaml", yaml)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if resp.StatusCode != 200 {
+		t.Errorf("StatusCode = %d, want 200", resp.StatusCode)
+	}
+	if gotContentType != "application/x-www-form-urlencoded" {
+		t.Errorf("Content-Type = %q, want application/x-www-form-urlencoded", gotContentType)
+	}
+	parsed, err := url.ParseQuery(string(gotBody))
+	if err != nil {
+		t.Fatalf("body is not form-encoded: %v (body=%q)", err, string(gotBody))
+	}
+	if got := parsed.Get("yaml_definition"); got != string(yaml) {
+		t.Errorf("yaml_definition = %q, want %q", got, string(yaml))
+	}
+}
+
+func TestPostYAMLEndpointURL(t *testing.T) {
+	var gotPath string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotPath = r.URL.Path
+		w.WriteHeader(200)
+		w.Write([]byte(`{}`))
+	}))
+	defer srv.Close()
+
+	host := strings.TrimPrefix(srv.URL, "http://")
+	c := newTestClient(host, "tok")
+	_, err := c.PostYAML("yaml", []byte("version: v1.0\n"))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	wantPath := "/api/v1alpha/yaml"
+	if gotPath != wantPath {
+		t.Errorf("path = %q, want %q", gotPath, wantPath)
 	}
 }
