@@ -51,11 +51,15 @@ blocks:
   - name: Security
     dependencies: []
     task:
+      epilogue:
+        always:
+          commands:
+            - 'if [ -f trivy-results.json ]; then artifact push workflow trivy-results.json; fi'
       jobs:
         - name: Trivy filesystem scan
           commands:
             - curl -sfL https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/install.sh | sh -s -- -b "$(go env GOPATH)/bin"
-            - "$(go env GOPATH)/bin/trivy fs --scanners vuln,secret,misconfig --severity HIGH,CRITICAL --exit-code 1 --format json --output trivy-results.json . || (artifact push workflow trivy-results.json && exit 1)"
+            - "$(go env GOPATH)/bin/trivy fs --scanners vuln,secret,misconfig --severity HIGH,CRITICAL --exit-code 1 --format json --output trivy-results.json ."
 
   - name: Build snapshot
     dependencies: [Quality, Security]
