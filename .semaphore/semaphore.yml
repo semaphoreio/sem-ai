@@ -48,27 +48,15 @@ blocks:
             - go tool cover -func=coverage.out
             - artifact push workflow coverage.out
 
-  - name: Build matrix
+  - name: Build snapshot
     dependencies: [Quality]
     task:
       jobs:
-        - name: Build darwin+linux
-          matrix:
-            - env_var: GOOS
-              values: [darwin, linux]
-            - env_var: GOARCH
-              values: [amd64, arm64]
+        - name: GoReleaser snapshot
           commands:
-            - export NAME="sem-ai-${GOOS}-${GOARCH}"
-            - go build -o "${NAME}" ./
-            - artifact push workflow "${NAME}"
-
-        - name: Build windows-amd64
-          commands:
-            - export GOOS=windows
-            - export GOARCH=amd64
-            - go build -o sem-ai-windows-amd64.exe ./
-            - artifact push workflow sem-ai-windows-amd64.exe
+            - go install github.com/goreleaser/goreleaser/v2@latest
+            - goreleaser release --snapshot --clean
+            - for f in dist/*.tar.gz dist/*.zip dist/checksums.txt; do artifact push workflow "$f"; done
 
 after_pipeline:
   task:
