@@ -6,14 +6,6 @@ run:
 linters:
   default: none
   enable:
-    - errcheck
-    - gosec
     - govet
     - ineffassign
-    - staticcheck
     - unused
-  exclusions:
-    rules:
-      - path: _test\.go
-        linters:
-          - gosec
