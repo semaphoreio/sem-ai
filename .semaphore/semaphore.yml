@@ -38,9 +38,7 @@ blocks:
         - name: Race
           commands:
             - go install gotest.tools/gotestsum@latest
-            - gotestsum --junitfile junit-race.xml --format pkgname -- -race ./...
-            - test-results publish junit-race.xml --name race
-            - artifact push workflow junit-race.xml
+            - gotestsum --junitfile junit-race.xml --format pkgname -- -race ./... || (test-results publish junit-race.xml --name race && artifact push workflow junit-race.xml && exit 1)
 
         - name: Coverage
           commands:
@@ -48,20 +46,11 @@ blocks:
             - go tool cover -func=coverage.out
             - artifact push workflow coverage.out
 
+promotions:
   - name: Build snapshot
-    dependencies: [Quality]
-    task:
-      jobs:
-        - name: GoReleaser snapshot
-          commands:
-            - cache restore go-mod-$(checksum go.sum),go-mod-main
-            - cache restore go-build-$SEMAPHORE_GIT_BRANCH,go-build-main
-            - curl -sfL https://goreleaser.com/static/run -o /tmp/goreleaser-run
-            - chmod +x /tmp/goreleaser-run
-            - /tmp/goreleaser-run release --snapshot --clean --skip=before
-            - for f in dist/*.tar.gz dist/*.zip dist/checksums.txt; do artifact push workflow "$f"; done
-            - cache store go-mod-$(checksum go.sum) ~/go/pkg/mod
-            - cache store go-build-$SEMAPHORE_GIT_BRANCH ~/.cache/go-build
+    pipeline_file: snapshot.yml
+    auto_promote:
+      when: "branch = 'main' AND result = 'passed'"
 
 after_pipeline:
   task:
