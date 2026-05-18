@@ -81,6 +81,11 @@ promotions:
     auto_promote:
       when: "branch = 'main' AND result = 'passed'"
 
+  - name: Publish GitHub Release
+    pipeline_file: release.yml
+    auto_promote:
+      when: "tag =~ '^v.*' AND result = 'passed'"
+
 after_pipeline:
   task:
     jobs:
