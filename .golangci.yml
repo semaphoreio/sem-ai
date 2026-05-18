@@ -3,6 +3,13 @@ version: "2"
 run:
   timeout: 5m
 
+output:
+  formats:
+    text:
+      path: stdout
+    junit-xml:
+      path: junit-lint.xml
+
 linters:
   default: none
   enable:
