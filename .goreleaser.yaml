@@ -2,10 +2,6 @@ version: 2
 
 project_name: sem-ai
 
-before:
-  hooks:
-    - go mod tidy
-
 builds:
   - id: sem-ai
     main: ./

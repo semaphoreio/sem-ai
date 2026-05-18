@@ -54,9 +54,14 @@ blocks:
       jobs:
         - name: GoReleaser snapshot
           commands:
-            - go install github.com/goreleaser/goreleaser/v2@latest
-            - goreleaser release --snapshot --clean
+            - cache restore go-mod-$(checksum go.sum),go-mod-main
+            - cache restore go-build-$SEMAPHORE_GIT_BRANCH,go-build-main
+            - curl -sfL https://goreleaser.com/static/run -o /tmp/goreleaser-run
+            - chmod +x /tmp/goreleaser-run
+            - /tmp/goreleaser-run release --snapshot --clean --skip=before
             - for f in dist/*.tar.gz dist/*.zip dist/checksums.txt; do artifact push workflow "$f"; done
+            - cache store go-mod-$(checksum go.sum) ~/go/pkg/mod
+            - cache store go-build-$SEMAPHORE_GIT_BRANCH ~/.cache/go-build
 
 after_pipeline:
   task:
