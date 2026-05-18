@@ -26,6 +26,6 @@ blocks:
             - curl -sfL https://goreleaser.com/static/run -o /tmp/goreleaser-run
             - chmod +x /tmp/goreleaser-run
             - /tmp/goreleaser-run release --snapshot --clean --skip=before
-            - for f in dist/*.tar.gz dist/*.zip dist/checksums.txt; do artifact push workflow "$f"; done
+            - 'if [ "$SEMAPHORE_GIT_BRANCH" = "main" ]; then for f in dist/*.tar.gz dist/*.zip dist/checksums.txt; do artifact push workflow "$f"; done; fi'
             - cache store go-mod-$(checksum go.sum) ~/go/pkg/mod
             - cache store go-build-$SEMAPHORE_GIT_BRANCH ~/.cache/go-build

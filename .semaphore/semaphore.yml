@@ -50,7 +50,7 @@ promotions:
   - name: Build snapshot
     pipeline_file: snapshot.yml
     auto_promote:
-      when: "branch = 'main' AND result = 'passed'"
+      when: "result = 'passed'"
 
 after_pipeline:
   task:
