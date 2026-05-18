@@ -38,9 +38,12 @@ blocks:
       jobs:
         - name: Race + coverage
           commands:
-            - go test -race -coverprofile=coverage.out ./...
+            - go install gotest.tools/gotestsum@latest
+            - gotestsum --junitfile junit.xml --format pkgname -- -race -coverprofile=coverage.out ./...
             - go tool cover -func=coverage.out
+            - test-results publish junit.xml
             - artifact push workflow coverage.out
+            - artifact push workflow junit.xml
 
   - name: Build matrix
     dependencies: [Test]
