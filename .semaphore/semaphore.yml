@@ -6,6 +6,13 @@ agent:
     type: e2-standard-2
     os_image: ubuntu2204
 
+global_job_config:
+  prologue:
+    commands:
+      - checkout
+      - sem-version go 1.25
+      - go version
+
 blocks:
   - name: Vet
     dependencies: []
@@ -13,7 +20,6 @@ blocks:
       jobs:
         - name: go vet
           commands:
-            - checkout
             - go vet ./...
 
   - name: Lint
@@ -22,7 +28,6 @@ blocks:
       jobs:
         - name: golangci-lint
           commands:
-            - checkout
             - curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/HEAD/install.sh | sh -s -- -b "$(go env GOPATH)/bin"
             - "$(go env GOPATH)/bin/golangci-lint run ./..."
 
@@ -32,7 +37,6 @@ blocks:
       jobs:
         - name: Race + coverage
           commands:
-            - checkout
             - go test -race -coverprofile=coverage.out ./...
             - go tool cover -func=coverage.out
             - artifact push workflow coverage.out
@@ -48,7 +52,6 @@ blocks:
             - env_var: GOARCH
               values: [amd64, arm64]
           commands:
-            - checkout
             - 'if [ "$GOOS" = "windows" ] && [ "$GOARCH" = "arm64" ]; then exit 0; fi'
             - export NAME="sem-ai-${GOOS}-${GOARCH}"
             - 'if [ "$GOOS" = "windows" ]; then NAME="${NAME}.exe"; fi'
