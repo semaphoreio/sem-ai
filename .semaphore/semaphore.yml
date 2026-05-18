@@ -7,19 +7,27 @@ agent:
     os_image: ubuntu2204
 
 blocks:
-  - name: Lint + Vet
+  - name: Vet
     dependencies: []
     task:
       jobs:
-        - name: golangci-lint + go vet
+        - name: go vet
           commands:
             - checkout
             - go vet ./...
+
+  - name: Lint
+    dependencies: []
+    task:
+      jobs:
+        - name: golangci-lint
+          commands:
+            - checkout
             - curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/HEAD/install.sh | sh -s -- -b "$(go env GOPATH)/bin"
             - "$(go env GOPATH)/bin/golangci-lint run ./..."
 
   - name: Test
-    dependencies: [Lint + Vet]
+    dependencies: []
     task:
       jobs:
         - name: Race + coverage
