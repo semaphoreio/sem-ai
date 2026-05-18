@@ -46,15 +46,20 @@ blocks:
     dependencies: [Test]
     task:
       jobs:
-        - name: Build
+        - name: Build darwin+linux
           matrix:
             - env_var: GOOS
-              values: [darwin, linux, windows]
+              values: [darwin, linux]
             - env_var: GOARCH
               values: [amd64, arm64]
           commands:
-            - 'if [ "$GOOS" = "windows" ] && [ "$GOARCH" = "arm64" ]; then exit 0; fi'
             - export NAME="sem-ai-${GOOS}-${GOARCH}"
-            - 'if [ "$GOOS" = "windows" ]; then NAME="${NAME}.exe"; fi'
             - go build -o "${NAME}" ./
             - artifact push workflow "${NAME}"
+
+        - name: Build windows-amd64
+          commands:
+            - export GOOS=windows
+            - export GOARCH=amd64
+            - go build -o sem-ai-windows-amd64.exe ./
+            - artifact push workflow sem-ai-windows-amd64.exe
