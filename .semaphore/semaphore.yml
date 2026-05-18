@@ -58,9 +58,8 @@ blocks:
       jobs:
         - name: Trivy filesystem scan
           commands:
-            - curl -sfL https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/install.sh | sh -s -- -b "$(go env GOPATH)/bin"
             - curl -sSfL https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/junit.tpl -o /tmp/junit.tpl
-            - "$(go env GOPATH)/bin/trivy fs --scanners vuln,secret,misconfig --severity HIGH,CRITICAL --exit-code 1 --format template --template '@/tmp/junit.tpl' --output junit-trivy.xml ."
+            - docker run --rm -v "$(pwd):/workspace" -v /tmp/junit.tpl:/tmp/junit.tpl -w /workspace aquasec/trivy:0.70.0 fs --scanners vuln,secret,misconfig --severity HIGH,CRITICAL --exit-code 1 --format template --template '@/tmp/junit.tpl' --output junit-trivy.xml .
 
   - name: Build snapshot
     dependencies: [Quality, Security]
