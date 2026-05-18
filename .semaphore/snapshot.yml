@@ -1,5 +1,5 @@
 version: v1.0
-name: Build snapshot
+name: Publish snapshot
 
 agent:
   machine:
@@ -15,17 +15,17 @@ global_job_config:
       - go version
 
 blocks:
-  - name: Build snapshot
+  - name: Publish snapshot
     dependencies: []
     task:
       jobs:
-        - name: GoReleaser snapshot
+        - name: GoReleaser snapshot + artifact push
           commands:
             - cache restore go-mod-$(checksum go.sum),go-mod-main
             - cache restore go-build-$SEMAPHORE_GIT_BRANCH,go-build-main
             - curl -sfL https://goreleaser.com/static/run -o /tmp/goreleaser-run
             - chmod +x /tmp/goreleaser-run
             - /tmp/goreleaser-run release --snapshot --clean --skip=before
-            - 'if [ "$SEMAPHORE_GIT_BRANCH" = "main" ]; then for f in dist/*.tar.gz dist/*.zip dist/checksums.txt; do artifact push workflow "$f"; done; fi'
+            - for f in dist/*.tar.gz dist/*.zip dist/checksums.txt; do artifact push workflow "$f"; done
             - cache store go-mod-$(checksum go.sum) ~/go/pkg/mod
             - cache store go-build-$SEMAPHORE_GIT_BRANCH ~/.cache/go-build

@@ -46,11 +46,25 @@ blocks:
             - go tool cover -func=coverage.out
             - artifact push workflow coverage.out
 
-promotions:
   - name: Build snapshot
+    dependencies: [Quality]
+    task:
+      jobs:
+        - name: GoReleaser snapshot
+          commands:
+            - cache restore go-mod-$(checksum go.sum),go-mod-main
+            - cache restore go-build-$SEMAPHORE_GIT_BRANCH,go-build-main
+            - curl -sfL https://goreleaser.com/static/run -o /tmp/goreleaser-run
+            - chmod +x /tmp/goreleaser-run
+            - /tmp/goreleaser-run release --snapshot --clean --skip=before
+            - cache store go-mod-$(checksum go.sum) ~/go/pkg/mod
+            - cache store go-build-$SEMAPHORE_GIT_BRANCH ~/.cache/go-build
+
+promotions:
+  - name: Publish snapshot
     pipeline_file: snapshot.yml
     auto_promote:
-      when: "result = 'passed'"
+      when: "branch = 'main' AND result = 'passed'"
 
 after_pipeline:
   task:
