@@ -54,12 +54,13 @@ blocks:
       epilogue:
         always:
           commands:
-            - 'if [ -f trivy-results.json ]; then artifact push workflow trivy-results.json; fi'
+            - 'for f in junit-*.xml; do [ -f "$f" ] || continue; n="${f#junit-}"; n="${n%.xml}"; test-results publish "$f" --name "$n"; done'
       jobs:
         - name: Trivy filesystem scan
           commands:
             - curl -sfL https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/install.sh | sh -s -- -b "$(go env GOPATH)/bin"
-            - "$(go env GOPATH)/bin/trivy fs --scanners vuln,secret,misconfig --severity HIGH,CRITICAL --exit-code 1 --format json --output trivy-results.json ."
+            - curl -sSfL https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/junit.tpl -o /tmp/junit.tpl
+            - "$(go env GOPATH)/bin/trivy fs --scanners vuln,secret,misconfig --severity HIGH,CRITICAL --exit-code 1 --format template --template '@/tmp/junit.tpl' --output junit-trivy.xml ."
 
   - name: Build snapshot
     dependencies: [Quality, Security]
