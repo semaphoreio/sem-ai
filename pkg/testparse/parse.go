@@ -60,9 +60,6 @@ var (
 	// jest: "Tests: 2 failed, 8 passed, 10 total"
 	jestSummaryRe = regexp.MustCompile(`Tests:\s+(\d+) failed,\s*(\d+) passed,\s*(\d+) total`)
 
-	// JUnit-style: test counts
-	junitCountRe = regexp.MustCompile(`tests="(\d+)".*failures="(\d+)"`)
-
 	// ExUnit (Elixir): "240 tests, 0 failures" or "1 doctest, 240 tests, 0 failures"
 	exunitSummaryRe = regexp.MustCompile(`(?:(\d+) doctests?,\s*)?(\d+) tests?,\s*(\d+) failures?(?:,\s*(\d+) excluded)?`)
 

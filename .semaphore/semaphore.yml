@@ -1,0 +1,89 @@
+version: v1.0
+name: sem-ai CI
+
+agent:
+  machine:
+    type: e2-standard-2
+    os_image: ubuntu2204
+
+global_job_config:
+  prologue:
+    commands:
+      - checkout
+      - sem-version go 1.25.5
+      - go clean -cache
+      - go version
+
+blocks:
+  - name: Quality
+    dependencies: []
+    task:
+      epilogue:
+        always:
+          commands:
+            - 'for f in junit-*.xml; do [ -f "$f" ] || continue; n="${f#junit-}"; n="${n%.xml}"; test-results publish "$f" --name "$n"; done'
+      jobs:
+        - name: Vet
+          commands:
+            - go vet ./...
+
+        - name: Lint
+          commands:
+            - curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/HEAD/install.sh | sh -s -- -b "$(go env GOPATH)/bin"
+            - "$(go env GOPATH)/bin/golangci-lint run ./..."
+
+        - name: Tests
+          commands:
+            - go install gotest.tools/gotestsum@latest
+            - gotestsum --junitfile junit-tests.xml --format pkgname -- ./...
+
+        - name: Race
+          commands:
+            - go install gotest.tools/gotestsum@latest
+            - gotestsum --junitfile junit-race.xml --format pkgname -- -race ./...
+
+        - name: Coverage
+          commands:
+            - go test -coverprofile=coverage.out ./...
+            - go tool cover -func=coverage.out
+            - artifact push workflow coverage.out
+
+  - name: Security
+    dependencies: []
+    task:
+      epilogue:
+        always:
+          commands:
+            - 'for f in junit-*.xml; do [ -f "$f" ] || continue; n="${f#junit-}"; n="${n%.xml}"; test-results publish "$f" --name "$n"; done'
+      jobs:
+        - name: Trivy filesystem scan
+          commands:
+            - curl -sSfL https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/junit.tpl -o /tmp/junit.tpl
+            - docker run --rm -v "$(pwd):/workspace" -v /tmp/junit.tpl:/tmp/junit.tpl -w /workspace aquasec/trivy:0.70.0 fs --scanners vuln,secret,misconfig --severity HIGH,CRITICAL --exit-code 1 --format template --template '@/tmp/junit.tpl' --output junit-trivy.xml .
+
+  - name: Build snapshot
+    dependencies: [Quality, Security]
+    task:
+      jobs:
+        - name: GoReleaser snapshot
+          commands:
+            - cache restore go-mod-$(checksum go.sum),go-mod-main
+            - cache restore go-build-$SEMAPHORE_GIT_BRANCH,go-build-main
+            - curl -sfL https://goreleaser.com/static/run -o /tmp/goreleaser-run
+            - chmod +x /tmp/goreleaser-run
+            - /tmp/goreleaser-run release --snapshot --clean --skip=before
+            - cache store go-mod-$(checksum go.sum) ~/go/pkg/mod
+            - cache store go-build-$SEMAPHORE_GIT_BRANCH ~/.cache/go-build
+
+promotions:
+  - name: Publish snapshot
+    pipeline_file: snapshot.yml
+    auto_promote:
+      when: "branch = 'main' AND result = 'passed'"
+
+after_pipeline:
+  task:
+    jobs:
+      - name: Pipeline test report
+        commands:
+          - test-results gen-pipeline-report
