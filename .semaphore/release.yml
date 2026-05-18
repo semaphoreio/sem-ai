@@ -23,8 +23,6 @@ blocks:
       jobs:
         - name: goreleaser release --clean
           commands:
-            - '[ -n "$SEMAPHORE_GIT_TAG_NAME" ] || { echo "release pipeline requires a tag context (SEMAPHORE_GIT_TAG_NAME is empty) — refuse to run on branch pipelines"; exit 1; }'
-            - 'echo "$SEMAPHORE_GIT_TAG_NAME" | grep -Eq "^v[0-9]" || { echo "tag $SEMAPHORE_GIT_TAG_NAME does not match ^v[0-9] — refusing to release"; exit 1; }'
             - cache restore go-mod-$(checksum go.sum),go-mod-main
             - cache restore go-build-$SEMAPHORE_GIT_BRANCH,go-build-main
             - export GITHUB_TOKEN="$GITHUB_TOKEN_PAT"

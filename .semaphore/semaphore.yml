@@ -78,11 +78,13 @@ blocks:
 promotions:
   - name: Publish snapshot
     pipeline_file: snapshot.yml
+    deployment_target: snapshot
     auto_promote:
       when: "branch = 'main' AND result = 'passed'"
 
   - name: Publish GitHub Release
     pipeline_file: release.yml
+    deployment_target: release
     auto_promote:
       when: "tag =~ '^v.*' AND result = 'passed'"
 
