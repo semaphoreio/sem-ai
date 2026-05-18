@@ -18,6 +18,10 @@ blocks:
   - name: Quality
     dependencies: []
     task:
+      epilogue:
+        always:
+          commands:
+            - 'for f in junit-*.xml; do [ -f "$f" ] || continue; n="${f#junit-}"; n="${n%.xml}"; test-results publish "$f" --name "$n"; done'
       jobs:
         - name: Vet
           commands:
@@ -26,19 +30,17 @@ blocks:
         - name: Lint
           commands:
             - curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/HEAD/install.sh | sh -s -- -b "$(go env GOPATH)/bin"
-            - "$(go env GOPATH)/bin/golangci-lint run ./...; EXIT=$?; test-results publish junit-lint.xml --name lint; artifact push workflow junit-lint.xml; exit $EXIT"
+            - "$(go env GOPATH)/bin/golangci-lint run ./..."
 
         - name: Tests
           commands:
             - go install gotest.tools/gotestsum@latest
             - gotestsum --junitfile junit-tests.xml --format pkgname -- ./...
-            - test-results publish junit-tests.xml --name tests
-            - artifact push workflow junit-tests.xml
 
         - name: Race
           commands:
             - go install gotest.tools/gotestsum@latest
-            - gotestsum --junitfile junit-race.xml --format pkgname -- -race ./... || (test-results publish junit-race.xml --name race && artifact push workflow junit-race.xml && exit 1)
+            - gotestsum --junitfile junit-race.xml --format pkgname -- -race ./...
 
         - name: Coverage
           commands:
