@@ -43,7 +43,6 @@ func TestReadWriteRoundTrip(t *testing.T) {
 		LatestVersion:             "0.4.1",
 		LatestPublishedAt:         now.Add(-time.Hour),
 		CurrentVersionWhenChecked: "0.3.0",
-		NotifiedForVersion:        "0.4.1",
 	}
 
 	if err := WriteCache(state); err != nil {

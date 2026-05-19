@@ -17,13 +17,15 @@ const CacheSchemaVersion = 1
 const DefaultTTL = 6 * time.Hour
 
 // CacheState is the on-disk shape of ~/.cache/sem-ai/version-check.json.
+// Old cache files may contain a `notified_for_version` field — it is silently
+// ignored on read (encoding/json discards unknown fields) and not written on
+// updates. The notice is now stderr-on-every-command by design.
 type CacheState struct {
 	Schema                    int       `json:"schema"`
 	LastCheckedAt             time.Time `json:"last_checked_at"`
 	LatestVersion             string    `json:"latest_version,omitempty"`
 	LatestPublishedAt         time.Time `json:"latest_published_at,omitempty"`
 	CurrentVersionWhenChecked string    `json:"current_version_when_checked,omitempty"`
-	NotifiedForVersion        string    `json:"notified_for_version,omitempty"`
 }
 
 // CachePath returns the location of the cache file. Honors XDG_CACHE_HOME;

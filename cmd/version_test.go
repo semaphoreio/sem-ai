@@ -130,13 +130,14 @@ func TestRunNotifyOnlyIfNewer_ColdCacheNewer_PrintsOnce(t *testing.T) {
 		t.Errorf("notice missing install.sh hint; got:\n%s", out)
 	}
 
-	// Second call: still newer, but already notified → silent.
+	// Second call: still newer → notice fires again (always-on stderr nag
+	// by design; stdout JSON contract preserved for agents).
 	buf.Reset()
 	if err := runNotifyOnlyIfNewer(context.Background(), buf); err != nil {
 		t.Fatal(err)
 	}
-	if buf.Len() != 0 {
-		t.Errorf("second call should be silent (notified); got:\n%s", buf.String())
+	if !strings.Contains(buf.String(), "0.4.1") {
+		t.Errorf("second call should also nag; got:\n%s", buf.String())
 	}
 }
 
@@ -414,11 +415,12 @@ func TestMaybeNotifyOnCommand_FiresWhenEligible(t *testing.T) {
 		t.Errorf("HTTP calls = %d, want 0 (fresh cache)", got)
 	}
 
-	// Second call: notified_for_version bumped → silent.
+	// Second call: still newer → notice fires AGAIN (every command nags
+	// on stderr while behind; stdout JSON unaffected so agents parse cleanly).
 	buf.Reset()
 	maybeNotifyOnCommand(makeCmd("status"), buf)
-	if buf.Len() != 0 {
-		t.Errorf("second call should be silent; got:\n%s", buf.String())
+	if !strings.Contains(buf.String(), "0.4.1") {
+		t.Errorf("second call should also nag; got:\n%s", buf.String())
 	}
 }
 
@@ -427,13 +429,11 @@ func TestMaybeNotifyOnCommand_StaleCache_SyncRefresh_ThenNotify(t *testing.T) {
 	forceTTYStderr(t, true)
 	t.Setenv("CI", "")
 
-	// Preseed STALE cache (12h old) with an older version + already-notified
-	// for that older version. Refresh should overwrite latest → 0.4.1 →
-	// notice fires (we have not yet been notified for 0.4.1).
+	// Preseed STALE cache (12h old) with an older version. Sync refresh
+	// should overwrite latest → 0.4.1 → notice fires.
 	if err := versioncheck.WriteCache(versioncheck.CacheState{
-		LastCheckedAt:      time.Now().UTC().Add(-12 * time.Hour),
-		LatestVersion:      "0.3.5",
-		NotifiedForVersion: "0.3.5",
+		LastCheckedAt: time.Now().UTC().Add(-12 * time.Hour),
+		LatestVersion: "0.3.5",
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -457,9 +457,6 @@ func TestMaybeNotifyOnCommand_StaleCache_SyncRefresh_ThenNotify(t *testing.T) {
 	}
 	if state.LatestVersion != "0.4.1" {
 		t.Errorf("cache LatestVersion after refresh = %q, want 0.4.1", state.LatestVersion)
-	}
-	if state.NotifiedForVersion != "0.4.1" {
-		t.Errorf("NotifiedForVersion = %q, want 0.4.1", state.NotifiedForVersion)
 	}
 }
 
