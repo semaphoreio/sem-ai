@@ -6,7 +6,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "sem-ai version --check --notify-only-if-newer",
+            "command": "command -v sem-ai >/dev/null 2>&1 && sem-ai version --check --notify-only-if-newer || printf 'sem-ai binary not found on PATH. Install:\\n  curl -fsSL https://raw.githubusercontent.com/semaphoreio/sem-ai/main/install.sh | sh\\n' >&2",
             "timeout": 4
           }
         ]
