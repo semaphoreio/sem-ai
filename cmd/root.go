@@ -92,20 +92,6 @@ func init() {
 	rootCmd.PersistentFlags().StringVarP(&formatFlag, "format", "f", "json", "output format: json, table, yaml")
 	rootCmd.PersistentFlags().BoolVarP(&verboseFlag, "verbose", "v", false, "verbose output (show HTTP requests)")
 	rootCmd.PersistentFlags().BoolVar(&examplesFlag, "examples", false, "show command examples and exit")
-
-	rootCmd.AddCommand(versionCmd)
-}
-
-var versionCmd = &cobra.Command{
-	Use:   "version",
-	Short: "Print version information",
-	Run: func(cmd *cobra.Command, args []string) {
-		output.Result(map[string]string{
-			"version": Version,
-			"commit":  Commit,
-			"date":    Date,
-		})
-	},
 }
 
 func initConfig() {
