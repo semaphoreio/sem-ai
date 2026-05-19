@@ -1,13 +1,16 @@
 {
-  "SessionStart": [
-    {
-      "hooks": [
-        {
-          "type": "command",
-          "command": "sem-ai version --check --notify-only-if-newer",
-          "timeout": 4
-        }
-      ]
-    }
-  ]
+  "hooks": {
+    "SessionStart": [
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "sem-ai version --check --notify-only-if-newer",
+            "timeout": 4
+          }
+        ]
+      }
+    ]
+  }
 }
