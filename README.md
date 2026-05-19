@@ -36,6 +36,33 @@ make install
 
 Requires Go 1.25+.
 
+## Updates
+
+When running the sem-ai plugin in Claude Code or Codex, a `SessionStart` hook checks GitHub for new releases at most once every 6 hours and surfaces a one-line notice in chat when one is available:
+
+```
+sem-ai 0.4.1 is available (you have 0.3.0). Upgrade:
+  curl -fsSL https://raw.githubusercontent.com/semaphoreio/sem-ai/main/install.sh | sh
+```
+
+To check from a shell at any time:
+
+```shell
+sem-ai version --check
+```
+
+To opt out (honored by both the plugin hook and manual CLI):
+
+```shell
+export SEM_AI_NO_UPDATE_CHECK=1
+```
+
+Upgrade by re-running the install script — it fast-paths if you're already on latest:
+
+```shell
+curl -fsSL https://raw.githubusercontent.com/semaphoreio/sem-ai/main/install.sh | sh
+```
+
 ## Quick start
 
 ```shell
