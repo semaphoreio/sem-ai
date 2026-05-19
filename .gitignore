@@ -5,6 +5,7 @@ sem-ai
 .env
 *.env
 .mcp.json
+!assets/plugin/.mcp.json
 .claude/
 coverage.out
 coverage.html

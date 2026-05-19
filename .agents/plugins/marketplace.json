@@ -1,0 +1,17 @@
+{
+  "name": "semaphoreio",
+  "owner": {
+    "name": "Semaphore CI",
+    "url": "https://semaphoreci.com"
+  },
+  "plugins": [
+    {
+      "name": "sem-ai",
+      "source": {
+        "path": "../../assets/plugin"
+      },
+      "description": "Agent-first Semaphore CI/CD client — skills bundle",
+      "version": "0.0.5"
+    }
+  ]
+}

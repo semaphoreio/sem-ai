@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "sem-ai": {
+      "command": "sem-ai",
+      "args": ["mcp"]
+    }
+  }
+}
