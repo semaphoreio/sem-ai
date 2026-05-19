@@ -14,7 +14,21 @@ Agent-first CLI for [Semaphore CI/CD](https://semaphore.io). Structured JSON out
 
 ## Install
 
-```shell
+```sh
+curl -fsSL https://raw.githubusercontent.com/semaphoreio/sem-ai/main/install.sh | sh
+```
+
+Installs the latest release automatically. Supports macOS and Linux on amd64 and arm64. The binary is placed at `$HOME/.local/bin/sem-ai` when that directory is on `$PATH`, or at `$HOME/.semaphore-ai/bin/sem-ai` otherwise (a `$PATH` hint is printed to stderr in that case).
+
+Re-run the same command to update to the newest release (or to confirm you're already on the latest).
+
+Want to inspect what runs first? `curl -fsSL https://raw.githubusercontent.com/semaphoreio/sem-ai/main/install.sh | less` before piping to `sh`.
+
+### Advanced / manual install
+
+For users who want to inspect-then-build, pin a specific commit, or work offline:
+
+```sh
 git clone https://github.com/semaphoreio/sem-ai.git
 cd sem-ai
 make install

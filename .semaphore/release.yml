@@ -1,0 +1,33 @@
+version: v1.0
+name: Publish GitHub Release
+
+agent:
+  machine:
+    type: e2-standard-2
+    os_image: ubuntu2204
+
+global_job_config:
+  secrets:
+    - name: gh-release-token
+  prologue:
+    commands:
+      - checkout
+      - sem-version go 1.25.5
+      - go clean -cache
+      - go version
+
+blocks:
+  - name: GoReleaser publish
+    dependencies: []
+    task:
+      jobs:
+        - name: goreleaser release --clean
+          commands:
+            - cache restore go-mod-$(checksum go.sum),go-mod-main
+            - cache restore go-build-$SEMAPHORE_GIT_BRANCH,go-build-main
+            - export GITHUB_TOKEN="$GITHUB_TOKEN_PAT"
+            - curl -sfL https://goreleaser.com/static/run -o /tmp/goreleaser-run
+            - chmod +x /tmp/goreleaser-run
+            - /tmp/goreleaser-run release --clean --skip=before
+            - cache store go-mod-$(checksum go.sum) ~/go/pkg/mod
+            - cache store go-build-$SEMAPHORE_GIT_BRANCH ~/.cache/go-build
