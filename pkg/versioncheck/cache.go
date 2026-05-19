@@ -85,8 +85,12 @@ func WriteCache(state CacheState) error {
 	}
 	tmpName := tmp.Name()
 
-	cleanup := func() { _ = os.Remove(tmpName) }
-	defer cleanup()
+	var renamed bool
+	defer func() {
+		if !renamed {
+			_ = os.Remove(tmpName)
+		}
+	}()
 
 	if _, err := tmp.Write(data); err != nil {
 		_ = tmp.Close()
@@ -103,7 +107,7 @@ func WriteCache(state CacheState) error {
 	if err := os.Rename(tmpName, path); err != nil {
 		return fmt.Errorf("rename %s -> %s: %w", tmpName, path, err)
 	}
-	cleanup = func() {} // rename succeeded; nothing to clean up
+	renamed = true
 	return nil
 }
 
