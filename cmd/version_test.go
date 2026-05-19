@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/semaphoreio/sem-ai/pkg/versioncheck"
+	"github.com/spf13/cobra"
 )
 
 // withGitHubMock spins an httptest.Server, swaps versioncheck.Endpoint to it,
@@ -241,6 +242,226 @@ func TestRunNotifyOnlyIfNewer_DevBuild_NeverNags(t *testing.T) {
 	}
 	if buf.Len() != 0 {
 		t.Errorf("dev build should never get a nag; got:\n%s", buf.String())
+	}
+}
+
+// makeCmd returns a cobra.Command with the given name — enough for the
+// gating logic that only inspects cmd.Name().
+func makeCmd(name string) *cobra.Command {
+	return &cobra.Command{Use: name}
+}
+
+// forceTTYStderr swaps stderrIsTTY for the duration of the test.
+func forceTTYStderr(t *testing.T, isTTY bool) {
+	t.Helper()
+	old := stderrIsTTY
+	stderrIsTTY = func() bool { return isTTY }
+	t.Cleanup(func() { stderrIsTTY = old })
+}
+
+func TestMaybeNotifyOnCommand_SkipsVersionSubcommand(t *testing.T) {
+	_, _ = withGitHubMock(t, "0.4.1", 200)
+	forceTTYStderr(t, true)
+
+	// Preseed a fresh cache with a newer version + not-yet-notified.
+	if err := versioncheck.WriteCache(versioncheck.CacheState{
+		LastCheckedAt: time.Now().UTC(),
+		LatestVersion: "0.4.1",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	oldV := Version
+	Version = "0.3.0"
+	t.Cleanup(func() { Version = oldV })
+
+	buf := new(bytes.Buffer)
+	maybeNotifyOnCommand(makeCmd("version"), buf)
+	if buf.Len() != 0 {
+		t.Errorf("expected silence on `version` subcommand; got:\n%s", buf.String())
+	}
+}
+
+func TestMaybeNotifyOnCommand_SkipsHelpSubcommand(t *testing.T) {
+	_, _ = withGitHubMock(t, "0.4.1", 200)
+	forceTTYStderr(t, true)
+
+	if err := versioncheck.WriteCache(versioncheck.CacheState{
+		LastCheckedAt: time.Now().UTC(),
+		LatestVersion: "0.4.1",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	oldV := Version
+	Version = "0.3.0"
+	t.Cleanup(func() { Version = oldV })
+
+	buf := new(bytes.Buffer)
+	maybeNotifyOnCommand(makeCmd("help"), buf)
+	if buf.Len() != 0 {
+		t.Errorf("expected silence on `help` subcommand; got:\n%s", buf.String())
+	}
+}
+
+func TestMaybeNotifyOnCommand_SkipsCompletionSubcommand(t *testing.T) {
+	_, _ = withGitHubMock(t, "0.4.1", 200)
+	forceTTYStderr(t, true)
+
+	if err := versioncheck.WriteCache(versioncheck.CacheState{
+		LastCheckedAt: time.Now().UTC(),
+		LatestVersion: "0.4.1",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	oldV := Version
+	Version = "0.3.0"
+	t.Cleanup(func() { Version = oldV })
+
+	buf := new(bytes.Buffer)
+	maybeNotifyOnCommand(makeCmd("__complete"), buf)
+	if buf.Len() != 0 {
+		t.Errorf("expected silence on completion subcommand; got:\n%s", buf.String())
+	}
+}
+
+func TestMaybeNotifyOnCommand_SkipsOnEnvOptOut(t *testing.T) {
+	_, _ = withGitHubMock(t, "0.4.1", 200)
+	forceTTYStderr(t, true)
+	t.Setenv("SEM_AI_NO_UPDATE_CHECK", "1")
+
+	if err := versioncheck.WriteCache(versioncheck.CacheState{
+		LastCheckedAt: time.Now().UTC(),
+		LatestVersion: "0.4.1",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	oldV := Version
+	Version = "0.3.0"
+	t.Cleanup(func() { Version = oldV })
+
+	buf := new(bytes.Buffer)
+	maybeNotifyOnCommand(makeCmd("status"), buf)
+	if buf.Len() != 0 {
+		t.Errorf("expected silence on env opt-out; got:\n%s", buf.String())
+	}
+}
+
+func TestMaybeNotifyOnCommand_SkipsOnCI(t *testing.T) {
+	_, _ = withGitHubMock(t, "0.4.1", 200)
+	forceTTYStderr(t, true)
+	t.Setenv("CI", "true")
+
+	if err := versioncheck.WriteCache(versioncheck.CacheState{
+		LastCheckedAt: time.Now().UTC(),
+		LatestVersion: "0.4.1",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	oldV := Version
+	Version = "0.3.0"
+	t.Cleanup(func() { Version = oldV })
+
+	buf := new(bytes.Buffer)
+	maybeNotifyOnCommand(makeCmd("status"), buf)
+	if buf.Len() != 0 {
+		t.Errorf("expected silence in CI; got:\n%s", buf.String())
+	}
+}
+
+func TestMaybeNotifyOnCommand_SkipsOnNonTTY(t *testing.T) {
+	_, _ = withGitHubMock(t, "0.4.1", 200)
+	forceTTYStderr(t, false)
+	// Make sure CI env doesn't accidentally also-skip — isolate the TTY lever.
+	t.Setenv("CI", "")
+
+	if err := versioncheck.WriteCache(versioncheck.CacheState{
+		LastCheckedAt: time.Now().UTC(),
+		LatestVersion: "0.4.1",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	oldV := Version
+	Version = "0.3.0"
+	t.Cleanup(func() { Version = oldV })
+
+	buf := new(bytes.Buffer)
+	maybeNotifyOnCommand(makeCmd("status"), buf)
+	if buf.Len() != 0 {
+		t.Errorf("expected silence on non-TTY stderr; got:\n%s", buf.String())
+	}
+}
+
+func TestMaybeNotifyOnCommand_FiresWhenEligible(t *testing.T) {
+	_, calls := withGitHubMock(t, "0.4.1", 200)
+	forceTTYStderr(t, true)
+	t.Setenv("CI", "")
+
+	if err := versioncheck.WriteCache(versioncheck.CacheState{
+		LastCheckedAt: time.Now().UTC(),
+		LatestVersion: "0.4.1",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	oldV := Version
+	Version = "0.3.0"
+	t.Cleanup(func() { Version = oldV })
+
+	buf := new(bytes.Buffer)
+	maybeNotifyOnCommand(makeCmd("status"), buf)
+	if !strings.Contains(buf.String(), "0.4.1") || !strings.Contains(buf.String(), "0.3.0") {
+		t.Errorf("expected notice; got:\n%s", buf.String())
+	}
+	if got := atomic.LoadInt64(calls); got != 0 {
+		t.Errorf("HTTP calls = %d, want 0 (fresh cache)", got)
+	}
+
+	// Second call: notified_for_version bumped → silent.
+	buf.Reset()
+	maybeNotifyOnCommand(makeCmd("status"), buf)
+	if buf.Len() != 0 {
+		t.Errorf("second call should be silent; got:\n%s", buf.String())
+	}
+}
+
+func TestMaybeNotifyOnCommand_StaleCache_SpawnsRefresh_NoSyncNotice(t *testing.T) {
+	_, calls := withGitHubMock(t, "0.4.1", 200)
+	forceTTYStderr(t, true)
+	t.Setenv("CI", "")
+
+	// Preseed STALE cache (12h old) with an older version.
+	if err := versioncheck.WriteCache(versioncheck.CacheState{
+		LastCheckedAt: time.Now().UTC().Add(-12 * time.Hour),
+		LatestVersion: "0.3.5",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	oldV := Version
+	Version = "0.3.0"
+	t.Cleanup(func() { Version = oldV })
+
+	buf := new(bytes.Buffer)
+	maybeNotifyOnCommand(makeCmd("status"), buf)
+	if buf.Len() != 0 {
+		t.Errorf("stale cache path should be silent this run; got:\n%s", buf.String())
+	}
+
+	// Wait briefly for goroutine to complete the refresh.
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		if atomic.LoadInt64(calls) >= 1 {
+			break
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	if got := atomic.LoadInt64(calls); got < 1 {
+		t.Errorf("expected goroutine to make ≥1 HTTP call within 2s; got %d", got)
+	}
+
+	state, ok, _ := versioncheck.ReadCache()
+	if !ok {
+		t.Fatal("cache disappeared after refresh")
+	}
+	if state.LatestVersion != "0.4.1" {
+		t.Errorf("cache LatestVersion after refresh = %q, want 0.4.1", state.LatestVersion)
 	}
 }
 

@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"os"
+	"strings"
 	"time"
 
 	"github.com/semaphoreio/sem-ai/pkg/output"
@@ -130,6 +132,99 @@ func runNotifyOnlyIfNewer(ctx context.Context, stderr io.Writer) error {
 	state.NotifiedForVersion = state.LatestVersion
 	_ = versioncheck.WriteCache(state) // best-effort; failure non-fatal
 	return nil
+}
+
+// stderrIsTTY is a package-level var so tests can override it.
+var stderrIsTTY = func() bool {
+	info, err := os.Stderr.Stat()
+	if err != nil {
+		return false
+	}
+	return (info.Mode() & os.ModeCharDevice) != 0
+}
+
+// maybeNotifyOnCommand is fired from rootCmd.PersistentPreRunE on every CLI
+// invocation. Best-effort, non-blocking, gated to avoid polluting scripts,
+// CI logs, and the version subcommand's own check path.
+//
+// Behavior:
+//   - Cache fresh: synchronously evaluate notify-eligibility from cache, emit
+//     stderr notice if eligible, bump notified_for_version.
+//   - Cache stale or empty: spawn a background goroutine to refresh from
+//     GitHub. The current command returns immediately; the *next* command
+//     reads the refreshed cache. Never blocks foreground.
+//
+// All gating is via shouldSkipPersistentCheck so tests can drive each lever.
+func maybeNotifyOnCommand(cmd *cobra.Command, stderr io.Writer) {
+	if shouldSkipPersistentCheck(cmd) {
+		return
+	}
+
+	state, _, _ := versioncheck.ReadCache()
+	now := time.Now().UTC()
+
+	if !versioncheck.Fresh(state, now) {
+		// Stale or empty cache → background refresh. Do not notify this run.
+		go refreshCacheInBackground(now)
+		return
+	}
+
+	if state.LatestVersion == "" {
+		return
+	}
+
+	newer, _ := versioncheck.Compare(Version, state.LatestVersion)
+	if !newer {
+		return
+	}
+	if state.NotifiedForVersion == state.LatestVersion {
+		return
+	}
+
+	fmt.Fprintf(stderr, "sem-ai %s is available (you have %s). Upgrade:\n  %s\n",
+		state.LatestVersion, Version, upgradeHint)
+
+	state.NotifiedForVersion = state.LatestVersion
+	_ = versioncheck.WriteCache(state) // best-effort
+}
+
+// shouldSkipPersistentCheck encapsulates every gating decision so tests can
+// hit each lever independently.
+func shouldSkipPersistentCheck(cmd *cobra.Command) bool {
+	name := cmd.Name()
+	if name == "version" || name == "help" || strings.HasPrefix(name, "__complete") {
+		return true
+	}
+	if versioncheck.EnvOptOut() {
+		return true
+	}
+	if ci := os.Getenv("CI"); ci == "true" || ci == "1" {
+		return true
+	}
+	if !stderrIsTTY() {
+		return true
+	}
+	return false
+}
+
+// refreshCacheInBackground is the goroutine body for the stale-cache path.
+// 3s HTTP timeout; merges into a fresh ReadCache to avoid clobbering a
+// concurrent NotifiedForVersion bump.
+func refreshCacheInBackground(now time.Time) {
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+
+	rel, err := versioncheck.Latest(ctx)
+	if err != nil {
+		return // silent on error; LastCheckedAt NOT bumped so we retry next run
+	}
+
+	current, _, _ := versioncheck.ReadCache()
+	current.LastCheckedAt = now
+	current.LatestVersion = rel.Version
+	current.LatestPublishedAt = rel.PublishedAt
+	current.CurrentVersionWhenChecked = Version
+	_ = versioncheck.WriteCache(current)
 }
 
 func init() {

@@ -51,6 +51,11 @@ var rootCmd = &cobra.Command{
 			return errExamplesShown
 		}
 
+		// Best-effort passive version notice. Synchronous cache-fresh path
+		// is sub-ms; stale path spawns a goroutine and returns immediately.
+		// Gating handled in shouldSkipPersistentCheck.
+		maybeNotifyOnCommand(cmd, cmd.ErrOrStderr())
+
 		return nil
 	},
 	SilenceUsage:  true,
