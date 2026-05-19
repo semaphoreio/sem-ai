@@ -12,7 +12,7 @@
         "path": "../../assets/plugin"
       },
       "description": "Agent-first Semaphore CI/CD client — skills bundle",
-      "version": "0.1.4"
+      "version": "0.1.5"
     }
   ]
 }
