@@ -143,16 +143,21 @@ var stderrIsTTY = func() bool {
 	return (info.Mode() & os.ModeCharDevice) != 0
 }
 
+// preRunCheckTimeout caps how long the PersistentPreRunE auto-notice will
+// wait for a cold-cache or stale-cache GitHub refresh. The cache absorbs
+// subsequent calls for 6h, so this cost is rare. Tight enough that an
+// offline user doesn't notice; loose enough to usually succeed.
+const preRunCheckTimeout = 1500 * time.Millisecond
+
 // maybeNotifyOnCommand is fired from rootCmd.PersistentPreRunE on every CLI
-// invocation. Best-effort, non-blocking, gated to avoid polluting scripts,
-// CI logs, and the version subcommand's own check path.
+// invocation. Gated to avoid polluting scripts, CI logs, and the version
+// subcommand's own check path.
 //
-// Behavior:
-//   - Cache fresh: synchronously evaluate notify-eligibility from cache, emit
-//     stderr notice if eligible, bump notified_for_version.
-//   - Cache stale or empty: spawn a background goroutine to refresh from
-//     GitHub. The current command returns immediately; the *next* command
-//     reads the refreshed cache. Never blocks foreground.
+// On cold or stale cache, performs a SYNCHRONOUS HTTP refresh with a tight
+// timeout (preRunCheckTimeout). Background goroutines don't survive short
+// CLI process lifetimes — the parent returns and the goroutine dies before
+// the HTTP call lands. After one successful refresh the cache absorbs calls
+// for 6h, so the sync-on-refresh cost is amortized.
 //
 // All gating is via shouldSkipPersistentCheck so tests can drive each lever.
 func maybeNotifyOnCommand(cmd *cobra.Command, stderr io.Writer) {
@@ -164,9 +169,17 @@ func maybeNotifyOnCommand(cmd *cobra.Command, stderr io.Writer) {
 	now := time.Now().UTC()
 
 	if !versioncheck.Fresh(state, now) {
-		// Stale or empty cache → background refresh. Do not notify this run.
-		go refreshCacheInBackground(now)
-		return
+		ctx, cancel := context.WithTimeout(context.Background(), preRunCheckTimeout)
+		defer cancel()
+		rel, err := versioncheck.Latest(ctx)
+		if err != nil {
+			return // offline / slow / rate-limited — try again next run
+		}
+		state.LastCheckedAt = now
+		state.LatestVersion = rel.Version
+		state.LatestPublishedAt = rel.PublishedAt
+		state.CurrentVersionWhenChecked = Version
+		_ = versioncheck.WriteCache(state)
 	}
 
 	if state.LatestVersion == "" {
@@ -205,26 +218,6 @@ func shouldSkipPersistentCheck(cmd *cobra.Command) bool {
 		return true
 	}
 	return false
-}
-
-// refreshCacheInBackground is the goroutine body for the stale-cache path.
-// 3s HTTP timeout; merges into a fresh ReadCache to avoid clobbering a
-// concurrent NotifiedForVersion bump.
-func refreshCacheInBackground(now time.Time) {
-	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
-	defer cancel()
-
-	rel, err := versioncheck.Latest(ctx)
-	if err != nil {
-		return // silent on error; LastCheckedAt NOT bumped so we retry next run
-	}
-
-	current, _, _ := versioncheck.ReadCache()
-	current.LastCheckedAt = now
-	current.LatestVersion = rel.Version
-	current.LatestPublishedAt = rel.PublishedAt
-	current.CurrentVersionWhenChecked = Version
-	_ = versioncheck.WriteCache(current)
 }
 
 func init() {

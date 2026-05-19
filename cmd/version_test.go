@@ -422,15 +422,18 @@ func TestMaybeNotifyOnCommand_FiresWhenEligible(t *testing.T) {
 	}
 }
 
-func TestMaybeNotifyOnCommand_StaleCache_SpawnsRefresh_NoSyncNotice(t *testing.T) {
+func TestMaybeNotifyOnCommand_StaleCache_SyncRefresh_ThenNotify(t *testing.T) {
 	_, calls := withGitHubMock(t, "0.4.1", 200)
 	forceTTYStderr(t, true)
 	t.Setenv("CI", "")
 
-	// Preseed STALE cache (12h old) with an older version.
+	// Preseed STALE cache (12h old) with an older version + already-notified
+	// for that older version. Refresh should overwrite latest → 0.4.1 →
+	// notice fires (we have not yet been notified for 0.4.1).
 	if err := versioncheck.WriteCache(versioncheck.CacheState{
-		LastCheckedAt: time.Now().UTC().Add(-12 * time.Hour),
-		LatestVersion: "0.3.5",
+		LastCheckedAt:      time.Now().UTC().Add(-12 * time.Hour),
+		LatestVersion:      "0.3.5",
+		NotifiedForVersion: "0.3.5",
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -440,20 +443,12 @@ func TestMaybeNotifyOnCommand_StaleCache_SpawnsRefresh_NoSyncNotice(t *testing.T
 
 	buf := new(bytes.Buffer)
 	maybeNotifyOnCommand(makeCmd("status"), buf)
-	if buf.Len() != 0 {
-		t.Errorf("stale cache path should be silent this run; got:\n%s", buf.String())
-	}
 
-	// Wait briefly for goroutine to complete the refresh.
-	deadline := time.Now().Add(2 * time.Second)
-	for time.Now().Before(deadline) {
-		if atomic.LoadInt64(calls) >= 1 {
-			break
-		}
-		time.Sleep(20 * time.Millisecond)
+	if got := atomic.LoadInt64(calls); got != 1 {
+		t.Errorf("HTTP calls = %d, want 1 (sync refresh on stale)", got)
 	}
-	if got := atomic.LoadInt64(calls); got < 1 {
-		t.Errorf("expected goroutine to make ≥1 HTTP call within 2s; got %d", got)
+	if !strings.Contains(buf.String(), "0.4.1") {
+		t.Errorf("expected notice for refreshed 0.4.1; got:\n%s", buf.String())
 	}
 
 	state, ok, _ := versioncheck.ReadCache()
@@ -462,6 +457,60 @@ func TestMaybeNotifyOnCommand_StaleCache_SpawnsRefresh_NoSyncNotice(t *testing.T
 	}
 	if state.LatestVersion != "0.4.1" {
 		t.Errorf("cache LatestVersion after refresh = %q, want 0.4.1", state.LatestVersion)
+	}
+	if state.NotifiedForVersion != "0.4.1" {
+		t.Errorf("NotifiedForVersion = %q, want 0.4.1", state.NotifiedForVersion)
+	}
+}
+
+func TestMaybeNotifyOnCommand_ColdCache_SyncRefresh_ThenNotify(t *testing.T) {
+	_, calls := withGitHubMock(t, "0.4.1", 200)
+	forceTTYStderr(t, true)
+	t.Setenv("CI", "")
+	// No preseeded cache.
+
+	oldV := Version
+	Version = "0.3.0"
+	t.Cleanup(func() { Version = oldV })
+
+	buf := new(bytes.Buffer)
+	maybeNotifyOnCommand(makeCmd("status"), buf)
+
+	if got := atomic.LoadInt64(calls); got != 1 {
+		t.Errorf("HTTP calls = %d, want 1 (sync refresh on cold)", got)
+	}
+	if !strings.Contains(buf.String(), "0.4.1") {
+		t.Errorf("expected first-run notice; got:\n%s", buf.String())
+	}
+
+	state, ok, _ := versioncheck.ReadCache()
+	if !ok {
+		t.Fatal("cache should have been written on cold-refresh")
+	}
+	if state.LatestVersion != "0.4.1" {
+		t.Errorf("LatestVersion = %q, want 0.4.1", state.LatestVersion)
+	}
+}
+
+func TestMaybeNotifyOnCommand_NetworkFailure_Silent_NoCacheBump(t *testing.T) {
+	_, _ = withGitHubMock(t, "", 503)
+	forceTTYStderr(t, true)
+	t.Setenv("CI", "")
+
+	// Cold cache.
+	oldV := Version
+	Version = "0.3.0"
+	t.Cleanup(func() { Version = oldV })
+
+	buf := new(bytes.Buffer)
+	maybeNotifyOnCommand(makeCmd("status"), buf)
+
+	if buf.Len() != 0 {
+		t.Errorf("expected silence on network failure with cold cache; got:\n%s", buf.String())
+	}
+	_, ok, _ := versioncheck.ReadCache()
+	if ok {
+		t.Error("cache should not be written on network failure")
 	}
 }
 
