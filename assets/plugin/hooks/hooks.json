@@ -1,0 +1,13 @@
+{
+  "SessionStart": [
+    {
+      "hooks": [
+        {
+          "type": "command",
+          "command": "sem-ai version --check --notify-only-if-newer",
+          "timeout": 4
+        }
+      ]
+    }
+  ]
+}
