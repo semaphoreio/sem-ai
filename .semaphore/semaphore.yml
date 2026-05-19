@@ -62,7 +62,7 @@ blocks:
             - docker run --rm -v "$(pwd):/workspace" -v /tmp/junit.tpl:/tmp/junit.tpl -w /workspace aquasec/trivy:0.70.0 fs --scanners vuln,secret,misconfig --severity HIGH,CRITICAL --exit-code 1 --format template --template '@/tmp/junit.tpl' --output junit-trivy.xml .
 
   - name: Build snapshot
-    dependencies: [Quality, Security]
+    dependencies: []
     task:
       jobs:
         - name: GoReleaser snapshot
