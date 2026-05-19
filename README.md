@@ -103,14 +103,16 @@ All commands become native MCP tools (`project_list`, `diagnose`, `status`, `bla
 
 ## Agent skills
 
-Install structured skill definitions for AI agents:
+sem-ai ships its skill bundle as a Claude Code / Codex plugin. From inside your AI host, install with two slash commands:
 
-```shell
-sem-ai install-skills claude
-sem-ai install-skills codex
+```
+/plugin marketplace add semaphoreio/sem-ai
+/plugin install sem-ai@semaphoreio
 ```
 
-Skills follow the [Agent Skills](https://agentskills.io) standard and give agents context on when and how to use each command without reading documentation.
+The plugin drops every sem-ai skill (debug-pipeline, deploy, manage-infra, project-health, semaphore-ci, test-intelligence, testbox) into your host. Updates ride the marketplace — `/plugin update sem-ai@semaphoreio` whenever a new sem-ai release lands.
+
+Skills follow the [Agent Skills](https://agentskills.io) standard and give agents context on when and how to use each sem-ai command without reading documentation.
 
 ## Commands
 
