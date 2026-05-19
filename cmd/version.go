@@ -93,8 +93,9 @@ func runCheckVerbose(ctx context.Context) error {
 }
 
 // runNotifyOnlyIfNewer is the hook-friendly mode. Silent unless a newer
-// release exists AND the user hasn't been notified for that release yet.
-// Output goes to stderr (surfaces in chat as developer context).
+// release exists. Output goes to stderr (stdout JSON contract preserved
+// for callers piping --format json to jq / agents). Notice fires every
+// invocation while behind — single nag-on-disk state would just stale.
 func runNotifyOnlyIfNewer(ctx context.Context, stderr io.Writer) error {
 	if versioncheck.EnvOptOut() {
 		return nil
@@ -122,15 +123,9 @@ func runNotifyOnlyIfNewer(ctx context.Context, stderr io.Writer) error {
 	if !newer {
 		return nil
 	}
-	if state.NotifiedForVersion == state.LatestVersion {
-		return nil
-	}
 
 	fmt.Fprintf(stderr, "sem-ai %s is available (you have %s). Upgrade:\n  %s\n",
 		state.LatestVersion, Version, upgradeHint)
-
-	state.NotifiedForVersion = state.LatestVersion
-	_ = versioncheck.WriteCache(state) // best-effort; failure non-fatal
 	return nil
 }
 
@@ -190,15 +185,9 @@ func maybeNotifyOnCommand(cmd *cobra.Command, stderr io.Writer) {
 	if !newer {
 		return
 	}
-	if state.NotifiedForVersion == state.LatestVersion {
-		return
-	}
 
 	fmt.Fprintf(stderr, "sem-ai %s is available (you have %s). Upgrade:\n  %s\n",
 		state.LatestVersion, Version, upgradeHint)
-
-	state.NotifiedForVersion = state.LatestVersion
-	_ = versioncheck.WriteCache(state) // best-effort
 }
 
 // shouldSkipPersistentCheck encapsulates every gating decision so tests can
