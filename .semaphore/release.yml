@@ -17,8 +17,16 @@ global_job_config:
       - go version
 
 blocks:
-  - name: GoReleaser publish
+  - name: Manifest matches tag
     dependencies: []
+    task:
+      jobs:
+        - name: check-manifest-versions
+          commands:
+            - make check-versions TAG="$SEMAPHORE_GIT_TAG_NAME"
+
+  - name: GoReleaser publish
+    dependencies: ["Manifest matches tag"]
     task:
       jobs:
         - name: goreleaser release --clean
