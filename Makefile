@@ -5,7 +5,7 @@ DATE      := $(shell date -u +%Y-%m-%dT%H:%M:%SZ)
 LDFLAGS   := -X main.version=$(VERSION) -X main.commit=$(COMMIT) -X main.date=$(DATE)
 INSTALL   := /usr/local/bin
 
-.PHONY: build install uninstall clean test fmt vet release
+.PHONY: build install uninstall clean test fmt vet release check-versions
 
 build:
 	go build -ldflags "$(LDFLAGS)" -o $(BINARY) .
@@ -29,6 +29,12 @@ fmt:
 
 vet:
 	go vet ./...
+
+# Check plugin manifests are consistent.
+#   make check-versions            # both files match each other
+#   make check-versions TAG=0.1.8  # both also match the given tag
+check-versions:
+	@./scripts/check-manifest-versions.sh $(TAG)
 
 # Bump plugin manifests, commit, and tag a new release.
 #   Usage: make release VERSION=0.1.8

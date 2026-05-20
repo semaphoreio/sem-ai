@@ -29,7 +29,7 @@ blocks:
 
         - name: Manifest versions
           commands:
-            - ./scripts/check-manifest-versions.sh
+            - make check-versions
 
         - name: Lint
           commands:

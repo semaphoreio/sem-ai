@@ -23,7 +23,7 @@ blocks:
       jobs:
         - name: check-manifest-versions
           commands:
-            - ./scripts/check-manifest-versions.sh "$SEMAPHORE_GIT_TAG_NAME"
+            - make check-versions TAG="$SEMAPHORE_GIT_TAG_NAME"
 
   - name: GoReleaser publish
     dependencies: ["Manifest matches tag"]
