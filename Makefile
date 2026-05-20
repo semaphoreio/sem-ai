@@ -37,8 +37,9 @@ check-versions:
 	@./scripts/check-manifest-versions.sh $(TAG)
 
 # Bump plugin manifests, commit, and tag a new release.
-#   Usage: make release VERSION=0.1.8
+#   make release VERSION=0.1.8              # apply
+#   make release VERSION=0.1.8 DRY_RUN=1    # preview, no changes
 # Thin wrapper around scripts/release.sh. Does NOT push — review
 # locally, then run the printed git push commands.
 release:
-	@./scripts/release.sh "$(VERSION)"
+	@./scripts/release.sh $(if $(DRY_RUN),--dry-run,) "$(VERSION)"
