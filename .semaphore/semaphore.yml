@@ -27,6 +27,11 @@ blocks:
           commands:
             - go vet ./...
 
+        - name: Manifest versions
+          commands:
+            - command -v yq >/dev/null 2>&1 || (curl -sSfL "https://github.com/mikefarah/yq/releases/latest/download/yq_linux_amd64" -o /tmp/yq && chmod +x /tmp/yq && sudo mv /tmp/yq /usr/local/bin/yq)
+            - ./scripts/check-manifest-versions.sh
+
         - name: Lint
           commands:
             - curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/HEAD/install.sh | sh -s -- -b "$(go env GOPATH)/bin"
