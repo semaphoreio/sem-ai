@@ -23,7 +23,6 @@ blocks:
       jobs:
         - name: check-manifest-versions
           commands:
-            - command -v yq >/dev/null 2>&1 || (curl -sSfL "https://github.com/mikefarah/yq/releases/latest/download/yq_linux_amd64" -o /tmp/yq && chmod +x /tmp/yq && sudo mv /tmp/yq /usr/local/bin/yq)
             - ./scripts/check-manifest-versions.sh "$SEMAPHORE_GIT_TAG_NAME"
 
   - name: GoReleaser publish
