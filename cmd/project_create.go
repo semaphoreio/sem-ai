@@ -41,6 +41,7 @@ var (
 	projectCreateIntegrationFlag string
 	projectCreateRemoteFlag      string
 	projectCreateSkipYAMLFlag    bool
+	projectCreateFailOnExists    bool
 )
 
 var projectCreateCmd = &cobra.Command{
@@ -49,7 +50,8 @@ var projectCreateCmd = &cobra.Command{
 	Example: `  sem-ai project create
   sem-ai project create --repo-url git@github.com:org/repo.git
   sem-ai project create --name my-project --github-integration github_app
-  sem-ai project create --skip-yaml`,
+  sem-ai project create --skip-yaml
+  sem-ai project create --fail-on-exists`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		if !config.IsConfigured() {
 			return fmt.Errorf("not configured — run 'sem-ai connect' first")
@@ -88,6 +90,27 @@ var projectCreateCmd = &cobra.Command{
 			name = derived
 		}
 
+		c := client.New()
+
+		if existing, found, err := lookupProject(c, name); err != nil {
+			output.Error("api_error", err.Error(), 1)
+			return err
+		} else if found {
+			if projectCreateFailOnExists {
+				output.Error("already_exists",
+					fmt.Sprintf("project %q already exists in this organization", name),
+					409)
+				return fmt.Errorf("project already exists")
+			}
+			output.Result(map[string]any{
+				"status":         "exists",
+				"project":        existing,
+				"yaml_generated": false,
+				"yaml_path":      "",
+			})
+			return nil
+		}
+
 		body := map[string]any{
 			"apiVersion": "v1alpha",
 			"kind":       "Project",
@@ -102,7 +125,6 @@ var projectCreateCmd = &cobra.Command{
 		}
 		payload, _ := json.Marshal(body)
 
-		c := client.New()
 		resp, err := c.Post("projects", payload)
 		if err != nil {
 			output.Error("api_error", err.Error(), 1)
@@ -144,6 +166,52 @@ var projectCreateCmd = &cobra.Command{
 }
 
 var projectNameRegex = regexp.MustCompile(`.+[:/]([^/]+)/([^/]+?)(?:\.git)?$`)
+
+// lookupProject returns the existing project (if any) for the given name.
+// Tries direct GET first; falls back to listing on non-200 since some servers
+// only allow lookup by ID via direct path.
+func lookupProject(c *client.Client, name string) (any, bool, error) {
+	resp, err := c.Get("projects", name)
+	if err != nil {
+		return nil, false, err
+	}
+	if resp.StatusCode == 200 {
+		var project any
+		if err := json.Unmarshal(resp.Body, &project); err != nil {
+			return nil, false, err
+		}
+		return project, true, nil
+	}
+	if resp.StatusCode != 404 {
+		// Fall through to list-based search on unexpected non-200 (e.g. 400)
+		// — older servers reject name lookups on the GET-by-id path.
+		listResp, err := c.List("projects")
+		if err != nil {
+			return nil, false, err
+		}
+		if listResp.StatusCode != 200 {
+			return nil, false, fmt.Errorf("HTTP %d on project lookup: %s",
+				listResp.StatusCode, string(listResp.Body))
+		}
+		var projects []json.RawMessage
+		if err := json.Unmarshal(listResp.Body, &projects); err != nil {
+			return nil, false, err
+		}
+		for _, raw := range projects {
+			var p struct {
+				Metadata struct {
+					Name string `json:"name"`
+				} `json:"metadata"`
+			}
+			if err := json.Unmarshal(raw, &p); err == nil && p.Metadata.Name == name {
+				var project any
+				_ = json.Unmarshal(raw, &project)
+				return project, true, nil
+			}
+		}
+	}
+	return nil, false, nil
+}
 
 func projectNameFromURL(repoURL string) (string, error) {
 	m := projectNameRegex.FindStringSubmatch(repoURL)
@@ -187,6 +255,8 @@ func init() {
 		"git remote to detect (when --repo-url not set)")
 	projectCreateCmd.Flags().BoolVar(&projectCreateSkipYAMLFlag, "skip-yaml", false,
 		"don't generate .semaphore/semaphore.yml in cwd")
+	projectCreateCmd.Flags().BoolVar(&projectCreateFailOnExists, "fail-on-exists", false,
+		"exit non-zero if a project with the same name already exists (default: return existing)")
 
 	projectCmd.AddCommand(projectCreateCmd)
 }
