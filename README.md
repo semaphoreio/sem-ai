@@ -36,6 +36,30 @@ make install
 
 Requires Go 1.25+.
 
+### Plugin install (Claude Code / Codex)
+
+sem-ai ships its skill bundle as a Claude Code / Codex plugin. From inside your AI host, install with two slash commands:
+
+```
+/plugin marketplace add semaphoreio/sem-ai
+/plugin install sem-ai@semaphoreio
+```
+
+The plugin drops every sem-ai skill (debug-pipeline, deploy, gha-to-semaphore, init, manage-infra, probe-agent-environment, project-health, sem-ai-bootstrap, semaphore-blocks, semaphore-ci, semaphore-promotions, semaphore-test-results, semaphore-toolbox, test-intelligence, testbox) into your host. Updates ride the marketplace — `/plugin update sem-ai@semaphoreio` whenever a new sem-ai release lands.
+
+Skills follow the [Agent Skills](https://agentskills.io) standard and give agents context on when and how to use each sem-ai command without reading documentation.
+
+#### Slash-command entry points
+
+User-invocable skills can be triggered directly with a namespaced slash command — useful when the activation keyword in a skill's description doesn't match your intent verbatim:
+
+| Slash command | What it does |
+|---|---|
+| `/sem-ai:init` | Initialize Semaphore CI/CD for the current repo — detects state (GHA present → translate; greenfield → from scratch; `.semaphore/` already → refine), applies defaults from the linked skills, validates, wires secrets, opens a PR |
+| `/sem-ai:gha-to-semaphore` | Translate only — same procedure as `init`'s translate path, scoped to converting `.github/workflows/*` |
+
+Other skills are loaded automatically when their description keywords match the user's prompt; the slash commands above are explicit triggers for the most common entry points.
+
 ## Updates
 
 When running the sem-ai plugin in Claude Code or Codex, a `SessionStart` hook checks GitHub for new releases at most once every 6 hours and surfaces a one-line notice in chat when one is available:
@@ -100,19 +124,6 @@ Add to `.mcp.json` in your project:
 ```
 
 All commands become native MCP tools (`project_list`, `diagnose`, `status`, `blast-radius`, etc). Long-running commands (`watch`, `promote-and-wait`) are excluded to prevent blocking.
-
-## Agent skills
-
-sem-ai ships its skill bundle as a Claude Code / Codex plugin. From inside your AI host, install with two slash commands:
-
-```
-/plugin marketplace add semaphoreio/sem-ai
-/plugin install sem-ai@semaphoreio
-```
-
-The plugin drops every sem-ai skill (debug-pipeline, deploy, gha-to-semaphore, manage-infra, probe-agent-environment, project-health, sem-ai-bootstrap, semaphore-blocks, semaphore-ci, semaphore-promotions, semaphore-test-results, semaphore-toolbox, test-intelligence, testbox) into your host. Updates ride the marketplace — `/plugin update sem-ai@semaphoreio` whenever a new sem-ai release lands.
-
-Skills follow the [Agent Skills](https://agentskills.io) standard and give agents context on when and how to use each sem-ai command without reading documentation.
 
 ## Commands
 
