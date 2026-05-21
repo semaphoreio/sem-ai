@@ -1,9 +1,6 @@
 ---
 name: testbox
-description: Run CI commands against local changes in a real Semaphore environment. Use when the user wants to test code before pushing, run tests in CI env, or iterate fast on fixes.
-when_to_use: >
-  Trigger on: "run tests", "test before pushing", "try this in CI", "does this pass",
-  "test my changes", "run the build", "check if tests pass", "spin up CI environment"
+description: Run CI commands against local changes in a real Semaphore environment. Use when the user wants to test code before pushing, run tests in CI env, or iterate fast on fixes — e.g. "run tests", "test before pushing", "try this in CI", "does this pass", "test my changes", "run the build", "check if tests pass", "spin up CI environment".
 user-invocable: false
 ---
 

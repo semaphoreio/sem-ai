@@ -1,7 +1,6 @@
 ---
 name: probe-agent-environment
-description: Spin up a short-lived Semaphore testbox to check what's actually installed on an agent — tools, versions, toolbox functions, runtimes — when the official image docs don't answer the question.
-trigger: agent needs to confirm whether a tool/runtime/version is preinstalled on a Semaphore agent; questions like "does the runner have X", "what version of Y ships on ubuntu2204/ubuntu2404", "is jq/yq/gh/aws/etc on the path", "what toolbox functions exist"; before writing a CI step that installs a tool, verify it isn't already preinstalled
+description: Spin up a short-lived Semaphore testbox to check what's actually installed on an agent — tools, versions, toolbox functions, runtimes — when the official image docs don't answer the question. Use when an agent needs to confirm whether a tool/runtime/version is preinstalled on a Semaphore agent ("does the runner have X", "what version of Y ships on ubuntu2204/ubuntu2404", "is jq/yq/gh/aws on PATH", "what toolbox functions exist"), or before adding a CI step that installs a tool — verify it isn't already preinstalled.
 ---
 
 # Probe a Semaphore agent with a testbox

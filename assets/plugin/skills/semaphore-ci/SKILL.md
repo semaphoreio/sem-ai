@@ -1,11 +1,6 @@
 ---
 name: semaphore-ci
-description: Manage Semaphore CI/CD via sem-ai. Use when the user asks about CI status, pipeline failures, test results, deployments, secrets, or anything related to their Semaphore pipelines and workflows.
-when_to_use: >
-  Trigger on: "CI status", "pipeline failed", "why did CI fail", "test results",
-  "deploy to staging", "rerun the pipeline", "what's flaky", "check the build",
-  "show me the logs", "promote to production", "secrets", "notifications",
-  "scheduled tasks", "deployment targets", "validate yaml", "project health"
+description: Manage Semaphore CI/CD via sem-ai. Use when the user asks about CI status, pipeline failures, test results, deployments, secrets, notifications, scheduled tasks, deployment targets, project health, or anything related to their Semaphore pipelines and workflows — e.g. "CI status", "pipeline failed", "why did CI fail", "deploy to staging", "rerun the pipeline", "what's flaky", "check the build", "show me the logs", "promote to production", "validate yaml".
 allowed-tools: Bash(sem-ai *)
 ---
 

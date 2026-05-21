@@ -1,7 +1,6 @@
 ---
 name: semaphore-toolbox
-description: The Semaphore toolbox — CLIs preinstalled in every job for caching, artifacts, language version switching, services, retries, and SSH debugging. Authoritative reference for the cache / artifact / retry / sem-version / sem-service / checkout commands.
-trigger: agent needs to use or reason about Semaphore toolbox commands; questions about cache CLI semantics, artifact push/pull, sem-version, sem-service, retry, checkout; pipeline writing decisions that involve any of these CLIs; debugging "command not found" or "command line argument" errors involving toolbox commands
+description: The Semaphore toolbox — CLIs preinstalled in every job for caching, artifacts, language version switching, services, retries, and SSH debugging. Authoritative reference for the cache / artifact / retry / sem-version / sem-service / checkout commands. Use when an agent needs to reason about Semaphore toolbox commands, questions arise about cache CLI semantics, artifact push/pull, sem-version, sem-service, retry, or checkout, pipeline-writing decisions involve any of these CLIs, or debugging "command not found" / "command line argument" errors involving toolbox commands.
 ---
 
 # Semaphore toolbox
