@@ -12,11 +12,11 @@ This skill is the depth that `semaphore-toolbox` defers to. See `semaphore-toolb
 ## The two commands
 
 ```
-test-results publish <junit-file> [--name <suite>] [--generate-mcp-summary]
+test-results publish <junit-file-or-dir> [--name <suite>] [--generate-mcp-summary]
 test-results gen-pipeline-report [--generate-mcp-summary]
 ```
 
-- **`publish`** — uploads ONE JUnit file as an artifact, scoped to the current job; the file appears under that job's Test Reports tab. Takes one file argument. `--name` labels the suite in the UI (useful when one job emits multiple junit files for different test types).
+- **`publish`** — uploads JUnit data as an artifact, scoped to the current job; the file(s) appear under that job's Test Reports tab. Accepts either a single XML file OR a directory — when given a directory, it publishes every XML inside (handy for sharded runners that emit `cypress-results/junit-shard-1.xml`, `cypress-results/junit-shard-2.xml`, …). `--name` labels the suite in the UI (useful when one job emits multiple junit files for different test types).
 - **`gen-pipeline-report`** — runs once at end of pipeline, gathers every junit artifact the publishes uploaded, and produces the **pipeline-level aggregated report** (the rolled-up view across all jobs).
 
 `--generate-mcp-summary` (on either command) also emits `mcp-summary.json` — a compact, AI-readable summary of pass/fail counts and failure messages.
@@ -246,7 +246,21 @@ Almost always: publish wasn't in the epilogue, was inline, and the test command 
 
 Either:
 - The epilogue loop missed a file (glob doesn't match — check the actual filename produced by the framework)
-- A `test-results publish` call returned non-zero and `set -e` killed subsequent publishes. Wrap each call: `test-results publish "$f" --name "$n" || true` if you want best-effort. Usually better to fix the offending file.
+- A `test-results publish` call returned non-zero and `set -e` killed subsequent publishes. Fix the offending file rather than papering over with `|| true` — see below.
+
+### Don't mask `test-results publish` failures with `|| true`
+
+Common (and wrong) pattern:
+
+```yaml
+- test-results publish cypress-results/ || true
+```
+
+Semaphore reports a job as failed when ANY epilogue command exits non-zero. Wrapping `test-results publish` in `|| true` to "make sure the job doesn't fail on publish errors" actively hides real publish failures: malformed XML, missing file, CLI error — all swallowed. The Test Reports tab silently stays empty and there's no signal that anything went wrong.
+
+Let it fail. If publish errors are blocking real runs, fix the cause (file path, framework JUnit config, missing dir) instead of masking. The same applies to `gen-pipeline-report` in `after_pipeline`.
+
+The only legitimate use of `|| true` here is in a fan-out loop where you genuinely want best-effort across N independent files AND you can stomach a silent miss — and even then, prefer to fix the offending file.
 
 ### "Test Reports tab is empty after a passing job"
 
