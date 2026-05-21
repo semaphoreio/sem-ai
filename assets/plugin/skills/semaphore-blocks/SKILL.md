@@ -130,6 +130,13 @@ For Cypress without `cypress-split`, Go, or any runner with no shard support, fa
 
 Manual split is uniform by file count, not by runtime — if one spec is 90% of wall-clock, this won't help. Prefer the native flag whenever available; most modern runners are time-balanced.
 
+**Footgun**: your file glob must match what the runner would discover on its own. Easy to miss:
+- nested subdirectories — `cypress/e2e/*.cy.js` only matches top-level files, ignoring `cypress/e2e/plugins/*.cy.js`. Use `find cypress/e2e -name '*.cy.js'` or `cypress/e2e/**/*.cy.js` (with globstar).
+- alternative suffixes — `.spec.ts` vs `.test.ts` vs `.cy.ts`; check the framework's actual discovery pattern.
+- excluded files in framework config — `cypress.config.js`'s `excludeSpecPattern`, `vitest.config.ts`'s `exclude`, `jest`'s `testPathIgnorePatterns`. Your manual glob doesn't know about these; the runner does.
+
+Native shard flag delegates discovery to the runner and can't desync. Every reason to prefer it.
+
 ### Is it actually a wall-clock win? (the cost-benefit check)
 
 Parallelism multiplies agent-minutes by N. It only multiplies *value* by N when the per-shard fixed cost (install + setup + checkout + cache restore + cache store) doesn't dominate. Run the math before applying:
