@@ -538,3 +538,86 @@ func TestRunNotifyOnlyIfNewer_StaleCacheRefreshes(t *testing.T) {
 		t.Errorf("stale cache should have been refreshed to 0.4.1; got:\n%s", buf.String())
 	}
 }
+
+func TestRunHookSystemMessage_UpToDate_Silent(t *testing.T) {
+	_, _ = withGitHubMock(t, "0.4.1", 200)
+
+	oldV := Version
+	Version = "0.4.1"
+	t.Cleanup(func() { Version = oldV })
+
+	buf := new(bytes.Buffer)
+	if err := runHookSystemMessage(context.Background(), buf); err != nil {
+		t.Fatalf("runHookSystemMessage: %v", err)
+	}
+	if buf.Len() != 0 {
+		t.Errorf("expected zero output when up to date; got: %q", buf.String())
+	}
+}
+
+func TestRunHookSystemMessage_Newer_EmitsJSON(t *testing.T) {
+	_, calls := withGitHubMock(t, "0.4.1", 200)
+
+	oldV := Version
+	Version = "0.3.0"
+	t.Cleanup(func() { Version = oldV })
+
+	buf := new(bytes.Buffer)
+	if err := runHookSystemMessage(context.Background(), buf); err != nil {
+		t.Fatalf("runHookSystemMessage: %v", err)
+	}
+	if got := atomic.LoadInt64(calls); got != 1 {
+		t.Errorf("HTTP calls = %d, want 1 (cold cache)", got)
+	}
+
+	var got map[string]string
+	if err := json.Unmarshal(buf.Bytes(), &got); err != nil {
+		t.Fatalf("output is not valid JSON: %v\nraw: %q", err, buf.String())
+	}
+	msg, ok := got["systemMessage"]
+	if !ok {
+		t.Fatalf("output missing systemMessage key; got: %q", buf.String())
+	}
+	if !strings.Contains(msg, "0.4.1") || !strings.Contains(msg, "0.3.0") {
+		t.Errorf("systemMessage missing versions; got: %q", msg)
+	}
+	if !strings.Contains(msg, "install.sh") {
+		t.Errorf("systemMessage missing install.sh hint; got: %q", msg)
+	}
+}
+
+func TestRunHookSystemMessage_HTTPFailure_Silent(t *testing.T) {
+	_, _ = withGitHubMock(t, "", 503)
+
+	oldV := Version
+	Version = "0.3.0"
+	t.Cleanup(func() { Version = oldV })
+
+	buf := new(bytes.Buffer)
+	if err := runHookSystemMessage(context.Background(), buf); err != nil {
+		t.Fatalf("runHookSystemMessage: %v", err)
+	}
+	if buf.Len() != 0 {
+		t.Errorf("expected zero output on HTTP failure; got: %q", buf.String())
+	}
+}
+
+func TestRunHookSystemMessage_OptOut_Silent(t *testing.T) {
+	_, calls := withGitHubMock(t, "0.4.1", 200)
+	t.Setenv("SEM_AI_NO_UPDATE_CHECK", "1")
+
+	oldV := Version
+	Version = "0.3.0"
+	t.Cleanup(func() { Version = oldV })
+
+	buf := new(bytes.Buffer)
+	if err := runHookSystemMessage(context.Background(), buf); err != nil {
+		t.Fatalf("runHookSystemMessage: %v", err)
+	}
+	if got := atomic.LoadInt64(calls); got != 0 {
+		t.Errorf("HTTP calls = %d, want 0 (env opt-out)", got)
+	}
+	if buf.Len() != 0 {
+		t.Errorf("expected zero output on opt-out; got: %q", buf.String())
+	}
+}
