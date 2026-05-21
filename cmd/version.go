@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"os"
@@ -16,6 +17,7 @@ import (
 var (
 	versionCheckFlag             bool
 	versionNotifyOnlyIfNewerFlag bool
+	versionHookFlag              bool
 )
 
 // upgradeHint is the canonical install.sh re-run command surfaced both in
@@ -27,8 +29,12 @@ var versionCmd = &cobra.Command{
 	Short: "Print version information",
 	Example: `  sem-ai version
   sem-ai version --check
-  sem-ai version --check --notify-only-if-newer`,
+  sem-ai version --check --notify-only-if-newer
+  sem-ai version --hook`,
 	RunE: func(cmd *cobra.Command, args []string) error {
+		if versionHookFlag {
+			return runHookSystemMessage(cmd.Context(), cmd.OutOrStdout())
+		}
 		if versionNotifyOnlyIfNewerFlag {
 			return runNotifyOnlyIfNewer(cmd.Context(), cmd.ErrOrStderr())
 		}
@@ -129,6 +135,54 @@ func runNotifyOnlyIfNewer(ctx context.Context, stderr io.Writer) error {
 	return nil
 }
 
+// runHookSystemMessage is the Claude Code SessionStart-hook mode. Silent on
+// stdout when up to date; on a newer release available emits a JSON document
+// `{"systemMessage": "<two-line upgrade notice>"}` so Claude Code surfaces it
+// as a visible banner. Exit 0 always — hooks must not block.
+//
+// Why this and not --notify-only-if-newer: Claude Code SessionStart hooks
+// treat stderr as "user-only" (printed to the terminal, not surfaced in the
+// UI). To get a visible banner, the hook must emit JSON on stdout with the
+// documented `systemMessage` field.
+func runHookSystemMessage(ctx context.Context, stdout io.Writer) error {
+	if versioncheck.EnvOptOut() {
+		return nil
+	}
+
+	state, _, _ := versioncheck.ReadCache()
+	now := time.Now().UTC()
+
+	if !versioncheck.Fresh(state, now) {
+		fetchCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+		defer cancel()
+
+		rel, err := versioncheck.Latest(fetchCtx)
+		if err != nil {
+			return nil // silent on error; LastCheckedAt NOT bumped so we retry
+		}
+		state.LastCheckedAt = now
+		state.LatestVersion = rel.Version
+		state.LatestPublishedAt = rel.PublishedAt
+		state.CurrentVersionWhenChecked = Version
+		_ = versioncheck.WriteCache(state)
+	}
+
+	newer, _ := versioncheck.Compare(Version, state.LatestVersion)
+	if !newer {
+		return nil
+	}
+
+	msg := fmt.Sprintf("sem-ai %s is available (you have %s). Upgrade:\n  %s",
+		state.LatestVersion, Version, upgradeHint)
+
+	payload, err := json.Marshal(map[string]string{"systemMessage": msg})
+	if err != nil {
+		return nil // best-effort; never block the session
+	}
+	fmt.Fprintln(stdout, string(payload))
+	return nil
+}
+
 // stderrIsTTY is a package-level var so tests can override it.
 var stderrIsTTY = func() bool {
 	info, err := os.Stderr.Stat()
@@ -212,5 +266,6 @@ func shouldSkipPersistentCheck(cmd *cobra.Command) bool {
 func init() {
 	versionCmd.Flags().BoolVar(&versionCheckFlag, "check", false, "check GitHub for a newer release")
 	versionCmd.Flags().BoolVar(&versionNotifyOnlyIfNewerFlag, "notify-only-if-newer", false, "(implies --check) silent unless a newer release exists; prints two-line stderr notice when newer")
+	versionCmd.Flags().BoolVar(&versionHookFlag, "hook", false, "Claude Code SessionStart-hook mode: silent on stdout when up to date; emits JSON {\"systemMessage\": ...} on stdout when a newer release exists")
 	rootCmd.AddCommand(versionCmd)
 }
