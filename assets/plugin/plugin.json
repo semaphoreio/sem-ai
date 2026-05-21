@@ -1,6 +1,6 @@
 {
   "name": "sem-ai",
-  "version": "0.1.9",
+  "version": "0.1.10",
   "description": "Agent-first Semaphore CI/CD client — skills bundle",
   "homepage": "https://github.com/semaphoreio/sem-ai",
   "author": {
