@@ -1,6 +1,7 @@
 ---
 name: gha-to-semaphore
-description: Translate a repo's GitHub Actions workflows into an equivalent Semaphore pipeline. ONLY covers the GHA→Semaphore mapping and conversion procedure; for Semaphore-side depth (cache CLI, test-results, blocks structure, sharding, promotions) defer to the linked skills. Use when the user asks to convert/port/migrate GitHub Actions to Semaphore, says "translate this workflow" or "convert ci.yml", or the repo has `.github/workflows/` and the user wants Semaphore instead.
+description: Translate a repo's GitHub Actions workflows into an equivalent Semaphore pipeline. ONLY covers the GHA→Semaphore mapping and conversion procedure; for Semaphore-side depth (cache CLI, test-results, blocks structure, sharding, promotions) defer to the linked skills. Use when the user asks to convert/port/migrate GitHub Actions to Semaphore, says "translate this workflow" or "convert ci.yml", or the repo has `.github/workflows/` and the user wants Semaphore instead. Can be invoked directly as `/sem-ai:gha-to-semaphore` (or via the broader `/sem-ai:init` orchestrator).
+user-invocable: true
 ---
 
 # Convert GitHub Actions to a Semaphore pipeline

@@ -71,6 +71,10 @@ if [ -x "$dest" ]; then
   installed_ver_stripped=${installed_ver#v}
   if [ -n "$installed_ver_stripped" ] && [ "$installed_ver_stripped" = "$ver" ]; then
     say "sem-ai ${tag} is already the latest version"
+    say ""
+    say "If you use Claude Code or Codex, refresh the plugin to pick up the latest skills:"
+    say "  /plugin update sem-ai@semaphoreio"
+    say "(First time? Install with:  /plugin marketplace add semaphoreio/sem-ai && /plugin install sem-ai@semaphoreio )"
     exit 0
   fi
 fi
@@ -107,3 +111,10 @@ if [ "$path_hint" = "1" ]; then
   warn "note: add ${dest_dir} to your PATH (e.g. add 'export PATH=\"\$HOME/.semaphore-ai/bin:\$PATH\"' to ~/.profile)"
 fi
 say "installed sem-ai ${tag} to ${dest}"
+say ""
+say "If you use Claude Code or Codex, install (or refresh) the skill bundle:"
+say "  /plugin marketplace add semaphoreio/sem-ai"
+say "  /plugin install sem-ai@semaphoreio        # first time"
+say "  /plugin update  sem-ai@semaphoreio        # already installed"
+say ""
+say "Then run /sem-ai:init in a repo to set up Semaphore CI/CD for it."
