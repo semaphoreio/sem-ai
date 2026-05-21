@@ -130,13 +130,37 @@ For Cypress without `cypress-split`, Go, or any runner with no shard support, fa
 
 Manual split is uniform by file count, not by runtime — if one spec is 90% of wall-clock, this won't help. Prefer the native flag whenever available; most modern runners are time-balanced.
 
-**When to use parallelism at all**:
-- Test suite where one job already passes correctness but wall-clock is slow (e2e, big Jest, big RSpec, big pytest).
-- Files / specs are roughly evenly costly (or you're using a time-balanced native shard).
+### Is it actually a wall-clock win? (the cost-benefit check)
 
-**When NOT to use**:
-- Different stack versions (Go 1.25 vs 1.26) — use a matrix or separate blocks.
-- Independent concerns (Lint + Test + Vet) — they're already separate jobs in one task; parallelism is for splitting *one* logical job.
+Parallelism multiplies agent-minutes by N. It only multiplies *value* by N when the per-shard fixed cost (install + setup + checkout + cache restore + cache store) doesn't dominate. Run the math before applying:
+
+```
+single-shard wall = setup + tests
+N-shard wall      = setup + (tests / N)     # tests/N assumes balanced split
+agent-time used   = N × (setup + tests / N) = N × setup + tests
+```
+
+So parallelism is a wall-clock win **only when `tests` is large compared to `setup`**. Two concrete shapes:
+
+| Pipeline | Single | 4-way | Verdict |
+|---|---|---|---|
+| 2m setup + 30s tests | 2m30s wall | 4 × (2m + 7.5s) = 8m30s agent for 2m07s wall | tiny gain, 3.4× cost — **not worth it** |
+| 10s cached setup + 4m tests | 4m10s wall | 4 × (10s + 1m) = 4m40s agent for 1m10s wall | **3.5× faster wall**, ~12% more agent-min |
+| 10s cached setup + 30s tests | 40s wall | 4 × (10s + 7.5s) = 70s agent for 17s wall | **2.4× faster** — fine but small absolute win |
+| 2m setup + 8m tests | 10m wall | 4 × (2m + 2m) = 16m agent for 4m wall | **2.5× faster**, 60% more agent-min — usually worth it |
+
+**Safe-to-shard checklist** (all should be true):
+
+- [ ] **Tests are the bottleneck** — the test command alone is > ~1 min wall-clock. If the slow part is `npm install`, shard does not help.
+- [ ] **Splittable** — runner has a native shard flag (Jest / Vitest / Playwright / pytest-split / etc.) OR specs are independently runnable (no shared mutable state).
+- [ ] **Setup is cached or genuinely cheap** — dep cache, language version, browser binaries, etc. all restore quickly. The per-shard "cold" install must not eat the savings.
+- [ ] **Split balances reasonably** — most native shard flags balance by file or by previous duration. If your suite has one 90% spec and many tiny ones, the unbalanced shard cancels the win.
+
+If any of those fails, **don't shard** — flag it in the PR body as "considered, not applied because X" rather than silently apply.
+
+**When NOT to use parallelism at all**:
+- Different stack versions (Go 1.25 vs 1.26) — use a matrix or separate blocks instead.
+- Independent concerns (Lint + Test + Vet) — they're already separate jobs in one task. Parallelism is for splitting *one* logical job into N copies of itself, not for fan-out across distinct work.
 
 **Combine with sibling jobs**: a block can mix `parallelism:` jobs with regular jobs. The parallelism count is per-job, not per-task.
 
@@ -173,6 +197,25 @@ blocks:
     dependencies: [Quality]   # actual dependency
     task: { ... }
 ```
+
+## `auto_cancel` — cancel stale runs on the same branch
+
+Pipeline-level setting that controls what happens when a new push arrives on a branch that already has an in-flight pipeline. Without `auto_cancel`, both runs continue — agent-min wasted on a commit nobody cares about anymore.
+
+```yaml
+auto_cancel:
+  running:
+    when: "branch != 'main' AND branch != 'master'"
+```
+
+- `running.when` — cancel **in-progress** runs when the predicate is true at the time of the new push.
+- `queued.when` (less common) — also cancel runs that haven't started yet. Use both together if your queue tends to back up.
+
+**Recommended default**: cancel on every branch EXCEPT `main` / `master`. Feature branches care only about the latest commit; main/master runs may be tied to deploy promotions or release tags, so they should always finish.
+
+Apply once at the pipeline root — not per block.
+
+If a project intentionally needs concurrent runs on the same branch (e.g. matrix builds across feature flags driven from external triggers), omit `auto_cancel` and document why.
 
 ## When to put work in the same task vs different blocks
 
