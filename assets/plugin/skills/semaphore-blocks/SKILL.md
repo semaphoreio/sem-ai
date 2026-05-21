@@ -79,6 +79,102 @@ blocks:
 
 `Smoke test` does not start until `Build` is `passed`.
 
+## Sharding one job across N parallel runs (`parallelism:`)
+
+Inside a single job, `parallelism: N` spawns the job N times in parallel on N agents. Each run gets a unique pair of env vars:
+
+| Env var | Value |
+|---|---|
+| `SEMAPHORE_JOB_INDEX` | 1-based index of this run (1..N) |
+| `SEMAPHORE_JOB_COUNT` | Total runs (equals `N`) |
+
+### Prefer the test runner's native shard flag
+
+Most modern runners know how to slice their own suites — duration-balanced where possible, file-balanced otherwise. Pass `$SEMAPHORE_JOB_INDEX` / `$SEMAPHORE_JOB_COUNT` to the runner; let it pick the tests:
+
+| Runner | Native flag |
+|---|---|
+| **Jest** (v28+) | `--shard=$SEMAPHORE_JOB_INDEX/$SEMAPHORE_JOB_COUNT` |
+| **Vitest** | `--shard=$SEMAPHORE_JOB_INDEX/$SEMAPHORE_JOB_COUNT` |
+| **Playwright** | `--shard=$SEMAPHORE_JOB_INDEX/$SEMAPHORE_JOB_COUNT` |
+| **pytest** (with `pytest-split`) | `--splits=$SEMAPHORE_JOB_COUNT --group=$SEMAPHORE_JOB_INDEX` |
+| **pytest** (with `pytest-shard`) | `--shard-id=$((SEMAPHORE_JOB_INDEX - 1)) --num-shards=$SEMAPHORE_JOB_COUNT` |
+| **RSpec** (with `parallel_tests` gem) | `parallel_rspec --only-group $SEMAPHORE_JOB_INDEX --group-by runtime --groups $SEMAPHORE_JOB_COUNT` |
+| **Knapsack Pro** | sets shard via its own env vars; works with Semaphore parallelism |
+| **Cypress** | no native shard; use [`cypress-split`](https://github.com/bahmutov/cypress-split) plugin (`--env split=$SEMAPHORE_JOB_INDEX,splitCount=$SEMAPHORE_JOB_COUNT`) or Cypress Cloud `--parallel --record` if you have a record key |
+| **Go** | no native shard; split by package list (manual) or use [`gotestsum --rerun-fails-report`](https://github.com/gotestyourself/gotestsum) plus a package-list filter |
+| **Maven Surefire** | `mvn test -P parallel-shard -Dshard.index=$SEMAPHORE_JOB_INDEX -Dshard.count=$SEMAPHORE_JOB_COUNT` (config-dependent) |
+
+Example — Jest sharded across 4 agents:
+
+```yaml
+- name: Jest
+  parallelism: 4
+  commands:
+    - npm ci
+    - npx jest --shard=$SEMAPHORE_JOB_INDEX/$SEMAPHORE_JOB_COUNT
+```
+
+Same shape works for Vitest, Playwright, pytest-split — only the flag changes.
+
+### Fallback — manual file split when there's no native flag
+
+For Cypress without `cypress-split`, Go, or any runner with no shard support, fall back to splitting the input list modulo N:
+
+```yaml
+- name: Cypress (no plugin)
+  parallelism: 4
+  commands:
+    - SPECS=$(find cypress/e2e -name '*.cy.js' | awk "NR % $SEMAPHORE_JOB_COUNT == ($SEMAPHORE_JOB_INDEX - 1)")
+    - npx cypress run --spec "$(echo $SPECS | tr '\n' ',' | sed 's/,$//')"
+```
+
+Manual split is uniform by file count, not by runtime — if one spec is 90% of wall-clock, this won't help. Prefer the native flag whenever available; most modern runners are time-balanced.
+
+**When to use parallelism at all**:
+- Test suite where one job already passes correctness but wall-clock is slow (e2e, big Jest, big RSpec, big pytest).
+- Files / specs are roughly evenly costly (or you're using a time-balanced native shard).
+
+**When NOT to use**:
+- Different stack versions (Go 1.25 vs 1.26) — use a matrix or separate blocks.
+- Independent concerns (Lint + Test + Vet) — they're already separate jobs in one task; parallelism is for splitting *one* logical job.
+
+**Combine with sibling jobs**: a block can mix `parallelism:` jobs with regular jobs. The parallelism count is per-job, not per-task.
+
+## Block status aggregation (gotcha)
+
+A block's status is the **max-failure** of its jobs. If a block has 5 jobs and one fails:
+- Block status → `failed`
+- All other (passing) jobs still appear with their individual `passed` state in the per-job view
+- Downstream blocks that `dependencies: [<this block>]` will NOT start
+
+This trips agents who see "Vitest passed" in one place and "Block failed" elsewhere and conclude something's wrong. Both are true. **Block = max-failure of its jobs; check per-job results, not just block-level.**
+
+## Explicit `dependencies:` — all-or-none (gotcha)
+
+Once **any** block in the pipeline declares `dependencies:`, **every** block must declare it (use `dependencies: []` for blocks with no upstream). Mixing implicit + explicit is a yaml validation error:
+
+```
+error: cannot mix explicit and implicit dependencies in the same pipeline
+```
+
+Convention: declare `dependencies:` on every block, even roots. Costs one line per root block; saves the surprise.
+
+```yaml
+blocks:
+  - name: Quality
+    dependencies: []          # explicit empty — must be declared
+    task: { ... }
+
+  - name: Security
+    dependencies: []          # explicit empty
+    task: { ... }
+
+  - name: Build
+    dependencies: [Quality]   # actual dependency
+    task: { ... }
+```
+
 ## When to put work in the same task vs different blocks
 
 | Use same task (multiple jobs in one block) | Use separate blocks |
@@ -197,6 +293,7 @@ To give a *single* job a different agent, give it its own block. There's no `age
 
 ## Boundaries
 
-- This skill explains **structure**. For the **deploy** side (promotions, deployment targets, gates), use the `semaphore-promotions` skill (forthcoming).
-- For **what the agent runs inside a job** (sem-version, cache restore, secrets binding, after_pipeline shape), see the `semaphore-pipeline-yaml-anatomy` skill (forthcoming).
+- This skill explains **structure**. For the **deploy** side (promotions, deployment targets, gates) use the `semaphore-promotions` skill.
+- For **toolbox CLIs used inside jobs** (`checkout`, `cache`, `artifact`, `retry`, `sem-version`, `sem-service`) see `semaphore-toolbox`.
+- For **publishing test reports** (epilogue placement, per-framework JUnit configs, pipeline aggregation) see `semaphore-test-results`.
 - For **why a job failed**, route to `sem-ai diagnose <workflow-id>` — that's the canonical failure-analysis entry point.
