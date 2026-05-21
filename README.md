@@ -110,7 +110,7 @@ sem-ai ships its skill bundle as a Claude Code / Codex plugin. From inside your 
 /plugin install sem-ai@semaphoreio
 ```
 
-The plugin drops every sem-ai skill (debug-pipeline, deploy, gha-to-semaphore, manage-infra, probe-agent-environment, project-health, sem-ai-bootstrap, semaphore-blocks, semaphore-ci, semaphore-promotions, semaphore-toolbox, test-intelligence, testbox) into your host. Updates ride the marketplace — `/plugin update sem-ai@semaphoreio` whenever a new sem-ai release lands.
+The plugin drops every sem-ai skill (debug-pipeline, deploy, gha-to-semaphore, manage-infra, probe-agent-environment, project-health, sem-ai-bootstrap, semaphore-blocks, semaphore-ci, semaphore-promotions, semaphore-test-results, semaphore-toolbox, test-intelligence, testbox) into your host. Updates ride the marketplace — `/plugin update sem-ai@semaphoreio` whenever a new sem-ai release lands.
 
 Skills follow the [Agent Skills](https://agentskills.io) standard and give agents context on when and how to use each sem-ai command without reading documentation.
 
