@@ -1,6 +1,6 @@
 ---
 name: test-intelligence
-description: Analyze test results, detect flaky tests, parse JUnit artifacts. Supports Go, pytest, rspec, minitest, jest, ExUnit.
+description: Pull and analyze test results from a Semaphore pipeline — failure detail, flaky-test detection, JUnit parsing. Use when a job failed and you need to see WHICH test broke without changing the pipeline config or re-running; when a junit-only reporter hides failure detail in the log; when you're about to add a stdout reporter just to debug — pull the published JUnit artifact instead via `sem-ai test summary` / `sem-ai test report` / `sem-ai artifact get`. Supports Go, pytest, rspec, minitest, jest, ExUnit.
 user-invocable: false
 ---
 
