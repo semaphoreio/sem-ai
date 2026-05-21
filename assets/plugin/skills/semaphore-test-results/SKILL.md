@@ -190,6 +190,52 @@ When sharding Cypress across N jobs (see `semaphore-blocks` parallelism), each s
 
 If you skip `gen-pipeline-report`, the per-job tabs still work, but the rolled-up pipeline view is empty.
 
+## Debugging a failed job — pull, don't tweak
+
+If your pipeline already publishes JUnit and a test fails, **don't change the reporter to also dump to stdout, and don't re-run with `-v`**. The failure detail is already published — pull it.
+
+```bash
+sem-ai test summary --pipeline <pipeline-id>
+# → verdict, total/passed/failed/skipped, per-failure: test name, file:line, message
+
+sem-ai test report --pipeline <pipeline-id>
+# → per-job view; tries the junit artifact first, falls back to log parsing
+
+sem-ai artifact get --scope jobs --id <job-id> --path junit-<name>.xml --output local.xml
+# → raw artifact when you want to inspect it yourself
+```
+
+See `test-intelligence` skill for full surface.
+
+### When to use which
+
+- **`test summary`** — first move when a pipeline went red. Compact digest. Right answer 90% of the time.
+- **`test report`** — when summary doesn't have enough; per-job breakdown.
+- **`artifact get`** — when you want the raw junit XML (e.g. to diff against a previous run, feed into other tooling).
+
+### Anti-pattern — junit-only reporter
+
+A test runner configured with **only** a JUnit reporter (Vitest `--reporter=junit` and nothing else; mocha-junit-reporter with `toConsole: false`; Jest with junit-only setup) produces zero human-readable output in the job log. When something fails, the log shows "exit 1" and nothing about which test broke.
+
+**Don't configure runners this way to begin with.** Keep the framework's default reporter alongside the JUnit one — the default reporter is calibrated to be useful without flooding the log (test names, failure messages, summary; no per-assertion noise). You get readable logs *and* the structured Test Reports tab.
+
+Concrete shapes:
+
+| Framework | Don't | Do |
+|---|---|---|
+| Vitest | `--reporter=junit` | `--reporter=default --reporter=junit` |
+| mocha / cypress-junit | `toConsole: false` | `toConsole: true` (or `mocha-multi-reporters` with `spec` + `mocha-junit-reporter`) |
+| Jest | only `jest-junit` in `reporters:` | `["default", ["jest-junit", { ... }]]` |
+| pytest | `--quiet --junitxml=...` | `--junitxml=...` (drop `--quiet`) |
+| RSpec | only `--format RspecJunitFormatter` | `--format progress --format RspecJunitFormatter --out junit-rspec.xml` |
+| gotestsum | `--format=junit` only | default `--format=pkgname` writes log; `--junitfile` adds junit |
+
+**Rule**: more log = better debugging, up to the point of flooding. Defaults across frameworks are well-tuned for this — keep them on, add JUnit alongside. Avoid `-v` / `--verbose` flags unless you actually need per-assertion trace; those triple log size for marginal debugging value.
+
+### If you DID end up junit-only, still don't change the pipeline first
+
+`sem-ai test summary --pipeline <id>` parses the junit artifact and prints a digest in under a second. Use that to identify what failed *before* deciding whether the right fix is a reporter config change or a code change. Patching the pipeline to dump more output, re-running, and waiting another few minutes is rarely the right first move — pull what's already published.
+
 ## Common failure modes
 
 ### "I see no test report, but the job's command produced junit-foo.xml"

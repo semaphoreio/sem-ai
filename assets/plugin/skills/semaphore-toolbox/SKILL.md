@@ -80,16 +80,24 @@ Cache is keyed; artifact is path-named. Cache LRU-evicts; artifact has explicit 
 
 ### FOOTGUN — cache-hit skips package postinstall hooks
 
-If `node_modules` is restored from cache, `npm install` says "up to date" and **skips postinstall hooks**. That means:
-- Cypress's postinstall (which downloads the actual Cypress binary into `~/.cache/Cypress`) doesn't fire → tests fail with "binary not found".
-- Playwright's postinstall (browser binaries) — same.
-- Anything with a postinstall download — same.
+If `node_modules` is restored from cache, `npm install` says "up to date" and **skips postinstall hooks**. The hooks are where downloaders like browser-test runners fetch their actual binary (separate from the npm package), so the cache hit silently breaks the binary.
 
-Two fixes:
-1. Also cache the binary dir: `cache restore cypress-bin-$(checksum package-lock.json)` and store `~/.cache/Cypress`.
-2. After `npm install`, run the postinstall trigger explicitly: `npx cypress install`, `npx playwright install`, etc.
+Examples in the wild:
+- Cypress postinstall downloads the runner binary into `~/.cache/Cypress` → next run fails with "binary not found".
+- Playwright postinstall downloads browser binaries into `~/.cache/ms-playwright` → same.
+- Any package with a fetch-binary postinstall — same shape.
 
-Option 1 is cheaper at runtime but pollutes cache keys; option 2 is simpler and adds <10s.
+**Rule (preferred)**: redirect the tool's binary directory into a path that's already part of your dependency-cache scope. Each tool reads an env var for its binary location:
+
+| Tool | Env var | Set it to |
+|---|---|---|
+| Cypress | `CYPRESS_CACHE_FOLDER` | a subdir of `$HOME/.npm` or your project's `node_modules/.cache/cypress` |
+| Playwright | `PLAYWRIGHT_BROWSERS_PATH` | similar — inside the deps cache |
+| Puppeteer | `PUPPETEER_CACHE_DIR` | similar |
+
+Set the env var in `global_job_config.env_vars:` (so every job sees it consistently) and the binary is then naturally bundled into your existing dependency-cache restore. No extra cache key, no manual postinstall trigger.
+
+**Fallback** when an env-var redirect isn't available: explicit postinstall trigger after `npm install`, e.g. `npx cypress install` / `npx playwright install`. Adds ~10s per run but works for any tool. Or cache the binary dir separately (its own `cache restore` / `cache store` keyed on the lockfile), which is cheap at runtime but multiplies cache keys.
 
 ---
 
