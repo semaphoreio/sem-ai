@@ -62,8 +62,17 @@ These come from the linked skills. Apply automatically; mention briefly in the P
 - **`cache` keyed on `$(checksum <lockfile>)` with fallback** for dependency caching (from `semaphore-toolbox` — cardinality: ONE path per `cache store`)
 - **`sem-service start <name>`** for postgres/mysql/redis/etc., NOT `services:` blocks (from `semaphore-toolbox`)
 - **`test-results publish` in `epilogue.always.commands:`** for JUnit reports — never inline (from `semaphore-test-results` — inline = silent on failure)
+- **Keep a default reporter alongside JUnit** (from `semaphore-test-results` "Anti-pattern — junit-only reporter") — junit-only reporters hide failure detail in the log; agents end up patching pipeline to debug. Use framework defaults + junit, not junit alone.
+- **For postinstall-fetched binaries** (Cypress, Playwright, Puppeteer), set the redirect env var (`CYPRESS_CACHE_FOLDER`, `PLAYWRIGHT_BROWSERS_PATH`, `PUPPETEER_CACHE_DIR`) in `global_job_config.env_vars:` to a subdir of an already-cached path (from `semaphore-toolbox` postinstall footgun) — avoids the silent cache-hit-skips-postinstall failure.
 - **Explicit `dependencies:` on every block** (from `semaphore-blocks` — all-or-none rule)
-- **Sharding via `parallelism: N` + the runner's native shard flag** when a test job has > N candidates (Cypress > 20 specs, Jest > 50 files, RSpec > 50, pytest > 100) — flag in PR body if applicable (from `semaphore-blocks` sharding table)
+- **`auto_cancel`** at pipeline root — cancel in-flight runs on non-default branches:
+  ```yaml
+  auto_cancel:
+    running:
+      when: "branch != 'main' AND branch != 'master'"
+  ```
+  Always apply on greenfield. For translate path, apply unless the user's GHA had explicit `concurrency:` rules that contradict (rare). (from `semaphore-blocks` `auto_cancel` section)
+- **Sharding**: do NOT auto-apply. Run the cost-benefit check from `semaphore-blocks` "Is it actually a wall-clock win" first — parallelism is a win only when tests dominate setup AND setup is cached/fast. If the check passes and there are obvious shard candidates (Cypress > 20 specs, Jest > 50 files, RSpec > 50, pytest > 100 tests), flag in PR body as a suggestion with the expected wall-clock delta. Don't apply on first draft.
 
 If unsure whether a tool is preinstalled (uncommon flag, language version, custom CLI), spawn a short-lived testbox via `probe-agent-environment` — never write `apt-get install` / `curl | bash` for something Semaphore likely already ships.
 
