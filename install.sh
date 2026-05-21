@@ -72,8 +72,9 @@ if [ -x "$dest" ]; then
   if [ -n "$installed_ver_stripped" ] && [ "$installed_ver_stripped" = "$ver" ]; then
     say "sem-ai ${tag} is already the latest version"
     say ""
-    say "If you use Claude Code or Codex, refresh the plugin to pick up the latest skills:"
-    say "  /plugin update sem-ai@semaphoreio"
+    say "If you use Claude Code or Codex, refresh the marketplace so the new skills land next session:"
+    say "  /plugin marketplace update semaphoreio"
+    say "  /reload-plugins         # apply now, no restart"
     say "(First time? Install with:  /plugin marketplace add semaphoreio/sem-ai && /plugin install sem-ai@semaphoreio )"
     exit 0
   fi
@@ -113,8 +114,9 @@ fi
 say "installed sem-ai ${tag} to ${dest}"
 say ""
 say "If you use Claude Code or Codex, install (or refresh) the skill bundle:"
-say "  /plugin marketplace add semaphoreio/sem-ai"
-say "  /plugin install sem-ai@semaphoreio        # first time"
-say "  /plugin update  sem-ai@semaphoreio        # already installed"
+say "  /plugin marketplace add semaphoreio/sem-ai     # first time only"
+say "  /plugin install sem-ai@semaphoreio             # first time"
+say "  /plugin marketplace update semaphoreio         # already installed — refresh catalog"
+say "  /reload-plugins                                # apply changes without restart"
 say ""
 say "Then run /sem-ai:init in a repo to set up Semaphore CI/CD for it."
