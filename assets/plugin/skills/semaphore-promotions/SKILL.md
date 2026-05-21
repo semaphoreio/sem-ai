@@ -1,7 +1,6 @@
 ---
 name: semaphore-promotions
-description: Explain Semaphore promotions — chained pipelines for deploys, gates, and environment fan-out — and link to sem-ai commands for triggering and inspecting them.
-trigger: user asks about Semaphore promotions, deploys, deployment targets, auto-promote, parameterized promotions, staging vs production gates, how to chain pipelines, environment fan-out
+description: Explain Semaphore promotions — chained pipelines for deploys, gates, and environment fan-out — and link to sem-ai commands for triggering and inspecting them. Use when the user asks about Semaphore promotions, deploys, deployment targets, auto-promote, parameterized promotions, staging vs production gates, how to chain pipelines, or environment fan-out.
 ---
 
 # Semaphore promotions

@@ -1,7 +1,6 @@
 ---
 name: semaphore-test-results
-description: Publish JUnit test reports from Semaphore jobs and surface them in the UI's Test Reports tab. Covers the `test-results` CLI, why it must live in `epilogue` (not the test command itself), and per-framework JUnit configuration for Go, pytest, RSpec, Jest, Vitest, ExUnit, Java.
-trigger: pipeline writes JUnit / test reports; questions about Test Reports tab; "why don't I see test results in Semaphore"; failures publish silently; flaky test surfacing; per-framework JUnit setup; pipeline-level aggregated report; `test-results publish` / `test-results gen-pipeline-report`
+description: Publish JUnit test reports from Semaphore jobs and surface them in the UI's Test Reports tab. Covers the `test-results` CLI, why it must live in `epilogue` (not the test command itself), and per-framework JUnit configuration for Go, pytest, RSpec, Jest, Vitest, ExUnit, Java. Use when a pipeline writes JUnit / test reports, the Test Reports tab is empty after a failure, failures publish silently, the user asks about flaky test surfacing or per-framework JUnit setup, or any time `test-results publish` / `test-results gen-pipeline-report` is involved.
 ---
 
 # Publishing test results on Semaphore

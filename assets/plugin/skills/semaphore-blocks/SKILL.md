@@ -1,7 +1,6 @@
 ---
 name: semaphore-blocks
-description: Explain how Semaphore pipelines are structured — blocks, tasks, jobs, dependencies, parallelism — and link to sem-ai commands for inspecting them.
-trigger: user asks about Semaphore pipeline structure, blocks, tasks, jobs, parallelism, dependencies, fan-out / fan-in, why a job is waiting, how to split work into parallel blocks, where to put agent / prologue / epilogue / secrets / env_vars
+description: Explain how Semaphore pipelines are structured — blocks, tasks, jobs, dependencies, parallelism — and link to sem-ai commands for inspecting them. Use when the user asks about Semaphore pipeline structure, blocks, tasks, jobs, parallelism, dependencies, fan-out / fan-in, why a job is waiting, how to split work into parallel blocks, or where to put agent / prologue / epilogue / secrets / env_vars.
 ---
 
 # Semaphore blocks, tasks, and jobs
