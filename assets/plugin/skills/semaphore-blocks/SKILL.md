@@ -261,6 +261,27 @@ To pre-flight YAML syntax before pushing:
 sem-ai yaml validate --file .semaphore/semaphore.yml
 ```
 
+### Polling a pipeline to terminal state — `result`, not `state`
+
+When waiting for a pipeline to finish (e.g. background `until` loops watching first-run completion), check the **`result`** field, not `state`:
+
+- `state` — `RUNNING`, `STOPPING`, `DONE` — has intermediate values that show up on nested objects (e.g. each block has its own `state: DONE` once the block finishes, while the parent pipeline is still running).
+- `result` — `PASSED`, `FAILED`, `STOPPED`, `CANCELED` — only populated when the **pipeline itself** terminates.
+
+Polling `state == "DONE"` will fire false positives on inner block transitions. Polling `result != ""` (or `result in ("PASSED","FAILED","STOPPED","CANCELED")`) only fires when the pipeline is genuinely terminal.
+
+```bash
+# Correct
+until result=$(sem-ai pipeline show "$id" --jq '.pipeline.result // ""') && [ -n "$result" ]; do
+  sleep 30
+done
+
+# WRONG — fires on intermediate block-state="done" before pipeline ends
+until sem-ai pipeline show "$id" --jq '.pipeline.state' | grep -q done; do
+  sleep 30
+done
+```
+
 ## Common patterns
 
 ### Fan-out, fan-in (Quality → Build)
