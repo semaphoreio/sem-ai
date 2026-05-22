@@ -97,6 +97,8 @@ Examples in the wild:
 
 Set the env var in `global_job_config.env_vars:` (so every job sees it consistently) and the binary is then naturally bundled into your existing dependency-cache restore. No extra cache key, no manual postinstall trigger.
 
+**First-run gotcha when introducing the env var**: the very first pipeline after you add the env-var redirect will restore the existing cache key (which was populated WITHOUT the binary subpath), `npm ci` will say "up to date", and the binary will still be missing. The fix is either to bust the cache key once (add a version suffix like `node-modules-v2-$(checksum package-lock.json)` so the next run starts fresh and bundles the binary) OR keep an explicit `npx cypress install` step as belt-and-braces for the transition. Both are one-time costs; after the cache rotates once, the env-var redirect alone is enough.
+
 **Fallback** when an env-var redirect isn't available: explicit postinstall trigger after `npm install`, e.g. `npx cypress install` / `npx playwright install`. Adds ~10s per run but works for any tool. Or cache the binary dir separately (its own `cache restore` / `cache store` keyed on the lockfile), which is cheap at runtime but multiplies cache keys.
 
 ---
