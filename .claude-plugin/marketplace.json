@@ -1,10 +1,10 @@
 {
   "name": "semaphoreio",
+  "description": "Agent-first Semaphore CI/CD tooling for Claude Code — skills and MCP integration to manage pipelines, tests, deploys, and infrastructure.",
   "owner": {
     "name": "Semaphore CI",
     "url": "https://semaphoreci.com"
   },
-  "autoUpdate": true,
   "plugins": [
     {
       "name": "sem-ai",
