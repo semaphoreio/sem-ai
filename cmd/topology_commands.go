@@ -259,7 +259,7 @@ func computeBlastRadius(blocks []blockTopology) (rootFailures, cascading []strin
 }
 
 // fetchTopology builds topology by combining pipeline show (v1alpha, block states)
-// with the pipeline YAML (block dependencies). Falls back to v2 if available.
+// with the pipeline YAML (block dependencies, fetched via artifacts).
 func fetchTopology(pipelineID string) (map[string]interface{}, error) {
 	c := client.New()
 
@@ -335,31 +335,7 @@ func fetchTopology(pipelineID string) (map[string]interface{}, error) {
 		}
 	}
 
-	// 3. If artifacts didn't work, try v2 as fallback for dependency info
-	if yamlDeps == nil {
-		_ = c.ResolveOrgID()
-		v2Resp, err := c.GetVersioned("v2", "pipelines/"+pipelineID, "describe_topology")
-		if err == nil && v2Resp.StatusCode == 200 {
-			var v2Data struct {
-				Blocks []struct {
-					Name         string   `json:"name"`
-					Dependencies []string `json:"dependencies"`
-				} `json:"blocks"`
-			}
-			if json.Unmarshal(v2Resp.Body, &v2Data) == nil && len(v2Data.Blocks) > 0 {
-				yamlDeps = map[string][]string{}
-				for _, b := range v2Data.Blocks {
-					if b.Dependencies != nil {
-						yamlDeps[b.Name] = b.Dependencies
-					} else {
-						yamlDeps[b.Name] = []string{}
-					}
-				}
-			}
-		}
-	}
-
-	// 4. If still no deps, try to infer from block ordering (basic heuristic):
+	// 3. If still no deps, try to infer from block ordering (basic heuristic):
 	//    blocks without explicit deps depend on nothing; otherwise use YAML data
 	if yamlDeps == nil {
 		// Last resort: infer from execution order. Blocks that are "waiting"

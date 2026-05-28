@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/url"
+	"strings"
 
 	"github.com/semaphoreio/sem-ai/pkg/client"
 	"github.com/semaphoreio/sem-ai/pkg/config"
@@ -130,11 +131,10 @@ var taskDeleteCmd = &cobra.Command{
 }
 
 var (
-	taskCreateProjectFlag  string
-	taskCreateBranchFlag   string
-	taskCreateFileFlag     string
-	taskCreateCronFlag     string
-	taskCreateDescFlag     string
+	taskCreateProjectFlag string
+	taskCreateBranchFlag  string
+	taskCreateFileFlag    string
+	taskCreateCronFlag    string
 )
 
 var taskCreateCmd = &cobra.Command{
@@ -146,31 +146,42 @@ var taskCreateCmd = &cobra.Command{
 		if !config.IsConfigured() {
 			return fmt.Errorf("not configured — run 'sem-ai connect' first")
 		}
-		projectID, err := resolveProjectID(taskCreateProjectFlag)
+		projectName, projectID, err := resolveProject(taskCreateProjectFlag)
 		if err != nil {
 			output.Error("project_error", err.Error(), 1)
 			return err
 		}
 
-		body := map[string]any{
-			"project_id":    projectID,
-			"name":          args[0],
-			"branch":        taskCreateBranchFlag,
-			"pipeline_file": taskCreateFileFlag,
-			"recurring":     taskCreateCronFlag != "",
-			"description":   taskCreateDescFlag,
-		}
-		if taskCreateCronFlag != "" {
-			body["expression"] = taskCreateCronFlag
-		}
-
-		bodyBytes, _ := json.Marshal(body)
 		c := client.New()
-		if err := c.ResolveOrgID(); err != nil {
-			output.Error("org_error", err.Error(), 1)
+
+		// Pre-check: v1alpha apply is upsert; match v2 create semantics by failing on duplicate.
+		params := url.Values{}
+		params.Set("project_id", projectID)
+		listResp, err := c.ListWithParams("tasks", params)
+		if err != nil {
+			output.Error("api_error", err.Error(), 1)
 			return err
 		}
-		resp, err := c.PostVersioned("v2", "tasks", bodyBytes)
+		if listResp.StatusCode == 200 {
+			var entries []struct {
+				Name string `json:"name"`
+				ID   string `json:"id"`
+			}
+			if err := json.Unmarshal(listResp.Body, &entries); err == nil {
+				for _, e := range entries {
+					if e.Name == args[0] {
+						err := fmt.Errorf("task %q already exists (id=%s); use a different name or delete it first", args[0], e.ID)
+						output.Error("conflict", err.Error(), 1)
+						return err
+					}
+				}
+			}
+		}
+
+		yml := buildScheduleYAML(args[0], projectName, taskCreateBranchFlag, taskCreateFileFlag, taskCreateCronFlag)
+		bodyBytes, _ := json.Marshal(map[string]string{"yml_definition": yml})
+
+		resp, err := c.Post("tasks", bodyBytes)
 		if err != nil {
 			output.Error("api_error", err.Error(), 1)
 			return err
@@ -189,13 +200,45 @@ var taskCreateCmd = &cobra.Command{
 	},
 }
 
+// buildScheduleYAML renders the apiVersion/kind/metadata/spec doc that
+// v1alpha POST /tasks (apply schedule) expects as yml_definition.
+// apiVersion v1.1 enables one-off tasks via recurring:false (no `at`).
+func buildScheduleYAML(name, project, branch, pipelineFile, cron string) string {
+	recurring := cron != ""
+	var b strings.Builder
+	b.WriteString("apiVersion: v1.1\n")
+	b.WriteString("kind: Periodic\n")
+	b.WriteString("metadata:\n")
+	fmt.Fprintf(&b, "  name: %s\n", yamlEscape(name))
+	b.WriteString("spec:\n")
+	fmt.Fprintf(&b, "  project: %s\n", yamlEscape(project))
+	fmt.Fprintf(&b, "  branch: %s\n", yamlEscape(branch))
+	fmt.Fprintf(&b, "  pipeline_file: %s\n", yamlEscape(pipelineFile))
+	fmt.Fprintf(&b, "  recurring: %t\n", recurring)
+	if recurring {
+		fmt.Fprintf(&b, "  at: %q\n", cron)
+	}
+	return b.String()
+}
+
+// yamlEscape quotes a scalar if it contains characters that would otherwise
+// break plain YAML parsing. Conservative: quote anything non-trivial.
+func yamlEscape(s string) string {
+	if s == "" {
+		return `""`
+	}
+	if strings.ContainsAny(s, ":#{}[],&*!|>'\"%@`\n\t") || strings.HasPrefix(s, "- ") || strings.HasPrefix(s, "? ") {
+		return fmt.Sprintf("%q", s)
+	}
+	return s
+}
+
 func init() {
 	taskListCmd.Flags().StringVar(&taskProjectFlag, "project", "", "project name or ID (required)")
 	taskCreateCmd.Flags().StringVar(&taskCreateProjectFlag, "project", "", "project name or ID (required)")
 	taskCreateCmd.Flags().StringVar(&taskCreateBranchFlag, "branch", "main", "branch to run on")
 	taskCreateCmd.Flags().StringVar(&taskCreateFileFlag, "file", ".semaphore/semaphore.yml", "pipeline YAML file")
 	taskCreateCmd.Flags().StringVar(&taskCreateCronFlag, "cron", "", "cron expression for recurring tasks")
-	taskCreateCmd.Flags().StringVar(&taskCreateDescFlag, "description", "", "task description")
 
 	taskCmd.AddCommand(taskListCmd)
 	taskCmd.AddCommand(taskShowCmd)
