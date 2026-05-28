@@ -9,10 +9,16 @@
     {
       "name": "sem-ai",
       "source": {
-        "path": "../../assets/plugin"
+        "source": "local",
+        "path": "./assets/plugin"
       },
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_INSTALL"
+      },
+      "category": "Engineering",
       "description": "Agent-first Semaphore CI/CD client — skills bundle",
-      "version": "0.1.5"
+      "version": "0.1.18"
     }
   ]
 }

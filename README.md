@@ -38,11 +38,20 @@ Requires Go 1.25+.
 
 ### Plugin install (Claude Code / Codex)
 
-sem-ai ships its skill bundle as a Claude Code / Codex plugin. From inside your AI host, install with two slash commands:
+sem-ai ships its skill bundle as a Claude Code / Codex plugin.
+
+**Claude Code** — from inside the host, install with two slash commands:
 
 ```
 /plugin marketplace add semaphoreio/sem-ai
 /plugin install sem-ai@semaphoreio
+```
+
+**Codex CLI** — install from the shell:
+
+```sh
+codex plugin marketplace add semaphoreio/sem-ai
+codex plugin add sem-ai@semaphoreio
 ```
 
 The plugin drops every sem-ai skill (debug-pipeline, deploy, gha-to-semaphore, init, manage-infra, probe-agent-environment, project-health, sem-ai-bootstrap, semaphore-blocks, semaphore-ci, semaphore-promotions, semaphore-test-results, semaphore-toolbox, test-intelligence, testbox) into your host.
