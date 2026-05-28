@@ -17,10 +17,11 @@ var taskCmd = &cobra.Command{
 }
 
 var taskProjectFlag string
+var taskRunParamsFlag map[string]string
 
 var taskListCmd = &cobra.Command{
-	Use:   "list",
-	Short: "List scheduled tasks for a project",
+	Use:     "list",
+	Short:   "List scheduled tasks for a project",
 	Example: `  sem-ai task list --project my-project`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		if !config.IsConfigured() {
@@ -77,16 +78,30 @@ var taskShowCmd = &cobra.Command{
 }
 
 var taskRunCmd = &cobra.Command{
-	Use:     "run <id>",
-	Short:   "Trigger a scheduled task to run now",
-	Args:    cobra.ExactArgs(1),
-	Example: `  sem-ai task run <task-id>`,
+	Use:   "run <id>",
+	Short: "Trigger a scheduled task to run now",
+	Args:  cobra.ExactArgs(1),
+	Example: `  sem-ai task run <task-id>
+  sem-ai task run <task-id> --param ENV=staging --param SERVICE=api --param BRANCH=feature-x`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		if !config.IsConfigured() {
 			return fmt.Errorf("not configured — run 'sem-ai connect' first")
 		}
+
+		// Tasks with declared required parameters need a body — POSTing nil
+		// causes the server to reject the run with INVALID_ARGUMENT. pflag's
+		// StringToStringVar handles --param KEY=VAL parsing + validation.
+		var body []byte
+		if len(taskRunParamsFlag) > 0 {
+			b, err := json.Marshal(map[string]any{"parameters": taskRunParamsFlag})
+			if err != nil {
+				return fmt.Errorf("marshal parameters: %w", err)
+			}
+			body = b
+		}
+
 		c := client.New()
-		resp, err := c.PostAction("tasks", args[0], "run_now", nil)
+		resp, err := c.PostAction("tasks", args[0], "run_now", body)
 		if err != nil {
 			output.Error("api_error", err.Error(), 1)
 			return err
@@ -130,18 +145,21 @@ var taskDeleteCmd = &cobra.Command{
 }
 
 var (
-	taskCreateProjectFlag  string
-	taskCreateBranchFlag   string
-	taskCreateFileFlag     string
-	taskCreateCronFlag     string
-	taskCreateDescFlag     string
+	taskCreateProjectFlag        string
+	taskCreateBranchFlag         string
+	taskCreateFileFlag           string
+	taskCreateCronFlag           string
+	taskCreateDescFlag           string
+	taskCreateRequiredParamsFlag []string
+	taskCreateOptionalParamsFlag []string
 )
 
 var taskCreateCmd = &cobra.Command{
 	Use:   "create <name>",
 	Short: "Create a scheduled task (periodic job)",
 	Args:  cobra.ExactArgs(1),
-	Example: `  sem-ai task create nightly-tests --project my-app --branch main --file .semaphore/nightly.yml --cron "0 2 * * *"`,
+	Example: `  sem-ai task create nightly-tests --project my-app --branch main --file .semaphore/nightly.yml --cron "0 2 * * *"
+  sem-ai task create deploy --project my-app --branch main --file .semaphore/deploy.yml --required-param ENV --required-param SERVICE`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		if !config.IsConfigured() {
 			return fmt.Errorf("not configured — run 'sem-ai connect' first")
@@ -152,16 +170,37 @@ var taskCreateCmd = &cobra.Command{
 			return err
 		}
 
-		body := map[string]any{
-			"project_id":    projectID,
+		// v2 task create body — K8s-style envelope with a `spec` block.
+		// Project goes in the URL path (route: /api/v2/projects/:project_id_or_name/tasks).
+		spec := map[string]any{
 			"name":          args[0],
-			"branch":        taskCreateBranchFlag,
-			"pipeline_file": taskCreateFileFlag,
-			"recurring":     taskCreateCronFlag != "",
 			"description":   taskCreateDescFlag,
+			"pipeline_file": taskCreateFileFlag,
+			"reference": map[string]any{
+				"type": "branch",
+				"name": taskCreateBranchFlag,
+			},
 		}
 		if taskCreateCronFlag != "" {
-			body["expression"] = taskCreateCronFlag
+			spec["cron_schedule"] = taskCreateCronFlag
+		}
+
+		// Declare task parameters (v2 schema: array of {name, required, ...}).
+		var params []map[string]any
+		for _, n := range taskCreateRequiredParamsFlag {
+			params = append(params, map[string]any{"name": n, "required": true})
+		}
+		for _, n := range taskCreateOptionalParamsFlag {
+			params = append(params, map[string]any{"name": n, "required": false})
+		}
+		if len(params) > 0 {
+			spec["parameters"] = params
+		}
+
+		body := map[string]any{
+			"apiVersion": "v2",
+			"kind":       "Task",
+			"spec":       spec,
 		}
 
 		bodyBytes, _ := json.Marshal(body)
@@ -170,7 +209,7 @@ var taskCreateCmd = &cobra.Command{
 			output.Error("org_error", err.Error(), 1)
 			return err
 		}
-		resp, err := c.PostVersioned("v2", "tasks", bodyBytes)
+		resp, err := c.PostVersioned("v2", fmt.Sprintf("projects/%s/tasks", projectID), bodyBytes)
 		if err != nil {
 			output.Error("api_error", err.Error(), 1)
 			return err
@@ -191,11 +230,14 @@ var taskCreateCmd = &cobra.Command{
 
 func init() {
 	taskListCmd.Flags().StringVar(&taskProjectFlag, "project", "", "project name or ID (required)")
+	taskRunCmd.Flags().StringToStringVar(&taskRunParamsFlag, "param", nil, "task parameter in KEY=VAL form (repeatable); required for tasks that declare parameters")
 	taskCreateCmd.Flags().StringVar(&taskCreateProjectFlag, "project", "", "project name or ID (required)")
 	taskCreateCmd.Flags().StringVar(&taskCreateBranchFlag, "branch", "main", "branch to run on")
 	taskCreateCmd.Flags().StringVar(&taskCreateFileFlag, "file", ".semaphore/semaphore.yml", "pipeline YAML file")
 	taskCreateCmd.Flags().StringVar(&taskCreateCronFlag, "cron", "", "cron expression for recurring tasks")
 	taskCreateCmd.Flags().StringVar(&taskCreateDescFlag, "description", "", "task description")
+	taskCreateCmd.Flags().StringArrayVar(&taskCreateRequiredParamsFlag, "required-param", []string{}, "declare a required task parameter NAME (repeatable)")
+	taskCreateCmd.Flags().StringArrayVar(&taskCreateOptionalParamsFlag, "optional-param", []string{}, "declare an optional task parameter NAME (repeatable)")
 
 	taskCmd.AddCommand(taskListCmd)
 	taskCmd.AddCommand(taskShowCmd)
