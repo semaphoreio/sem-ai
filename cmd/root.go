@@ -5,7 +5,9 @@ import (
 	"io"
 	"log"
 	"os"
+	"strings"
 
+	"github.com/semaphoreio/sem-ai/pkg/client"
 	"github.com/semaphoreio/sem-ai/pkg/config"
 	"github.com/semaphoreio/sem-ai/pkg/output"
 
@@ -24,6 +26,10 @@ var (
 	examplesFlag bool
 
 	errExamplesShown = fmt.Errorf("examples shown")
+
+	// invocationSource is the process-wide client surface stamped onto request
+	// headers. Defaults to the CLI; runMCPServer flips it to "semai-mcp".
+	invocationSource = "semai-cli"
 )
 
 var rootCmd = &cobra.Command{
@@ -35,6 +41,13 @@ var rootCmd = &cobra.Command{
 			log.SetOutput(io.Discard)
 		}
 		output.SetFormat(formatFlag)
+
+		// Stamp client identification for server-side request metrics. Runs for
+		// every command on both the CLI and MCP surfaces (each MCP tool call
+		// re-enters the cobra tree), so this is the single choke point that knows
+		// the command being executed.
+		client.Source = invocationSource
+		client.Command = commandSlug(cmd.CommandPath())
 
 		if examplesFlag {
 			if cmd.Example != "" {
@@ -60,6 +73,17 @@ var rootCmd = &cobra.Command{
 	},
 	SilenceUsage:  true,
 	SilenceErrors: true,
+}
+
+// commandSlug turns a cobra command path ("sem-ai analytics summary") into the
+// underscore-joined leaf path ("analytics_summary") used as the
+// x-semaphore-client-command header value. Returns "" for the bare root command.
+func commandSlug(path string) string {
+	fields := strings.Fields(path)
+	if len(fields) <= 1 {
+		return ""
+	}
+	return strings.Join(fields[1:], "_")
 }
 
 func Execute() {

@@ -131,6 +131,59 @@ func TestOrgIDHeaderNotSentWhenEmpty(t *testing.T) {
 	}
 }
 
+// ---- Client identification headers ---------------------------------------------
+
+func restoreClientMeta(s, c, v string) {
+	Source, Command, Version = s, c, v
+}
+
+func TestClientHeadersSent(t *testing.T) {
+	var gotSource, gotCommand, gotVersion string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotSource = r.Header.Get("x-semaphore-client-source")
+		gotCommand = r.Header.Get("x-semaphore-client-command")
+		gotVersion = r.Header.Get("x-semaphore-client-version")
+		w.WriteHeader(200)
+		w.Write([]byte(`{}`))
+	}))
+	defer srv.Close()
+
+	defer restoreClientMeta(Source, Command, Version)
+	Source, Command, Version = "semai-mcp", "pipeline_list", "1.4.0"
+
+	host := strings.TrimPrefix(srv.URL, "http://")
+	c := newTestClient(host, "tok")
+	if _, err := c.Get("pipelines", "p1"); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if gotSource != "semai-mcp" || gotCommand != "pipeline_list" || gotVersion != "1.4.0" {
+		t.Errorf("client headers = (%q, %q, %q), want (semai-mcp, pipeline_list, 1.4.0)",
+			gotSource, gotCommand, gotVersion)
+	}
+}
+
+func TestClientCommandHeaderOmittedWhenEmpty(t *testing.T) {
+	var gotCommand string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotCommand = r.Header.Get("x-semaphore-client-command")
+		w.WriteHeader(200)
+		w.Write([]byte(`{}`))
+	}))
+	defer srv.Close()
+
+	defer restoreClientMeta(Source, Command, Version)
+	Source, Command, Version = "semai-cli", "", "dev"
+
+	host := strings.TrimPrefix(srv.URL, "http://")
+	c := newTestClient(host, "tok")
+	if _, err := c.Get("pipelines", "p1"); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if gotCommand != "" {
+		t.Errorf("x-semaphore-client-command should be omitted when empty, got %q", gotCommand)
+	}
+}
+
 // ---- GetExternal does NOT send auth headers ------------------------------------
 
 func TestGetExternalNoAuthHeader(t *testing.T) {
