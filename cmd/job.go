@@ -9,6 +9,7 @@ import (
 	"github.com/semaphoreio/sem-ai/pkg/client"
 	"github.com/semaphoreio/sem-ai/pkg/config"
 	"github.com/semaphoreio/sem-ai/pkg/output"
+	"github.com/semaphoreio/sem-ai/pkg/signals"
 	"github.com/spf13/cobra"
 )
 
@@ -96,7 +97,7 @@ var jobLogCmd = &cobra.Command{
 					sb.WriteString(e.Output)
 				case "cmd_finished":
 					if e.ExitCode != 0 {
-						sb.WriteString(fmt.Sprintf("\n[exit code: %d]\n", e.ExitCode))
+						sb.WriteString(fmt.Sprintf("\n[exit code: %d%s]\n", e.ExitCode, signals.Annotate(e.ExitCode)))
 					}
 				case "job_finished":
 					sb.WriteString(fmt.Sprintf("\n[job result: %s]\n", e.JobResult))
@@ -106,14 +107,16 @@ var jobLogCmd = &cobra.Command{
 			return nil
 		}
 
-		// JSON/YAML: structured events
+		// JSON/YAML: structured events. Signal is additive — exit_code is always
+		// preserved; signal/signal_no/meaning are extra context for 128+N codes.
 		type logEvent struct {
-			Timestamp int64  `json:"timestamp"`
-			Type      string `json:"type"`
-			Output    string `json:"output,omitempty"`
-			Command   string `json:"command,omitempty"`
-			ExitCode  int    `json:"exit_code,omitempty"`
-			JobResult string `json:"job_result,omitempty"`
+			Timestamp int64         `json:"timestamp"`
+			Type      string        `json:"type"`
+			Output    string        `json:"output,omitempty"`
+			Command   string        `json:"command,omitempty"`
+			ExitCode  int           `json:"exit_code,omitempty"`
+			Signal    *signals.Info `json:"signal,omitempty"`
+			JobResult string        `json:"job_result,omitempty"`
 		}
 
 		events := make([]logEvent, 0, len(logs.Events))
@@ -124,6 +127,7 @@ var jobLogCmd = &cobra.Command{
 				Output:    e.Output,
 				Command:   e.Directive,
 				ExitCode:  e.ExitCode,
+				Signal:    signals.Interpret(e.ExitCode),
 				JobResult: e.JobResult,
 			})
 		}
