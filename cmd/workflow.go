@@ -170,6 +170,51 @@ func resolveProjectID(nameOrID string) (string, error) {
 	return nameOrID, nil
 }
 
+// resolveProject returns both the project name and ID from a name-or-ID input.
+// v1alpha endpoints that take a YAML body need the project name in spec.project,
+// while query-param endpoints still want the ID.
+func resolveProject(nameOrID string) (name, id string, err error) {
+	if nameOrID == "" {
+		return "", "", fmt.Errorf("--project is required")
+	}
+	c := client.New()
+
+	resp, err := c.Get("projects", nameOrID)
+	if err == nil && resp.StatusCode == 200 {
+		var p struct {
+			Metadata struct {
+				Name string `json:"name"`
+				ID   string `json:"id"`
+			} `json:"metadata"`
+		}
+		if err := json.Unmarshal(resp.Body, &p); err == nil && p.Metadata.ID != "" {
+			return p.Metadata.Name, p.Metadata.ID, nil
+		}
+	}
+
+	listResp, err := c.List("projects")
+	if err != nil {
+		return "", "", err
+	}
+	if listResp.StatusCode == 200 {
+		var projects []struct {
+			Metadata struct {
+				Name string `json:"name"`
+				ID   string `json:"id"`
+			} `json:"metadata"`
+		}
+		if err := json.Unmarshal(listResp.Body, &projects); err == nil {
+			for _, p := range projects {
+				if p.Metadata.Name == nameOrID || p.Metadata.ID == nameOrID {
+					return p.Metadata.Name, p.Metadata.ID, nil
+				}
+			}
+		}
+	}
+
+	return "", "", fmt.Errorf("project not found: %s", nameOrID)
+}
+
 var workflowRerunCmd = &cobra.Command{
 	Use:   "rerun <id>",
 	Short: "Rerun a workflow (reschedule)",

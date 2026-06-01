@@ -248,7 +248,6 @@ All analytics commands accept `--project` (auto-detected from git), `--days`, `-
 |---------|-------------|
 | `open` | Open workflow/pipeline in browser |
 | `watch <workflow-id>` | Poll workflow until done, streaming status |
-| `api-spec` | Fetch the Semaphore v2 OpenAPI spec |
 | `version` | Print version information |
 | `yaml validate --file <path>` | Validate pipeline YAML |
 | `troubleshoot workflow/pipeline/job <id>` | Server-side diagnostics |
