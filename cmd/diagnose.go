@@ -9,6 +9,7 @@ import (
 	"github.com/semaphoreio/sem-ai/pkg/client"
 	"github.com/semaphoreio/sem-ai/pkg/config"
 	"github.com/semaphoreio/sem-ai/pkg/output"
+	"github.com/semaphoreio/sem-ai/pkg/signals"
 	"github.com/semaphoreio/sem-ai/pkg/testparse"
 	"github.com/spf13/cobra"
 )
@@ -145,15 +146,19 @@ If no workflow ID is given, finds the latest workflow for the current project/br
 
 		// Find failed blocks and jobs
 		type failedJob struct {
-			Block     string              `json:"block"`
-			JobName   string              `json:"job_name"`
-			JobID     string              `json:"job_id"`
-			LogTail   string              `json:"log_tail,omitempty"`
+			Block      string                `json:"block"`
+			JobName    string                `json:"job_name"`
+			JobID      string                `json:"job_id"`
+			LogTail    string                `json:"log_tail,omitempty"`
+			Signal     *signals.Info         `json:"signal,omitempty"`
 			TestReport *testparse.TestReport `json:"test_report,omitempty"`
 		}
 
 		failedJobs := make([]failedJob, 0)
 		failedBlocks := make([]string, 0)
+		// stopReason captures the first signal-induced stop across all jobs, so
+		// the diagnosis surfaces "why did this silently stop" at the top level.
+		var stopReason *signals.Info
 
 		for _, block := range pplData.Blocks {
 			if block.Result != "passed" && block.Result != "" {
@@ -187,7 +192,13 @@ If no workflow ID is given, finds the latest workflow for the current project/br
 									allOutput.WriteString(e.Output)
 								}
 								if e.ExitCode != 0 && e.Directive != "" {
-									failedCmds = append(failedCmds, fmt.Sprintf("$ %s (exit %d)", e.Directive, e.ExitCode))
+									sig := signals.Interpret(e.ExitCode)
+									if sig != nil {
+										failedCmds = append(failedCmds, fmt.Sprintf("$ %s (exit %d — %s)", e.Directive, e.ExitCode, sig.Signal))
+										fj.Signal = sig // last signal-bearing command wins (the trigger)
+									} else {
+										failedCmds = append(failedCmds, fmt.Sprintf("$ %s (exit %d)", e.Directive, e.ExitCode))
+									}
 								}
 							}
 
@@ -206,6 +217,9 @@ If no workflow ID is given, finds the latest workflow for the current project/br
 						}
 					}
 
+					if stopReason == nil && fj.Signal != nil {
+						stopReason = fj.Signal
+					}
 					failedJobs = append(failedJobs, fj)
 				}
 			}
@@ -237,6 +251,13 @@ If no workflow ID is given, finds the latest workflow for the current project/br
 			"failed_blocks":  failedBlocks,
 			"failed_jobs":    failedJobs,
 			"total_blocks":   len(pplData.Blocks),
+		}
+
+		// Additive: explain a signal-induced stop. Most actionable for exit 130,
+		// where the job shows STOPPED (not FAILED) and failure notifications are
+		// silently suppressed.
+		if stopReason != nil {
+			diagnosis["stop_reason"] = stopReason
 		}
 
 		output.Result(diagnosis)
