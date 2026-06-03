@@ -43,6 +43,13 @@ sem-ai <any-command> --examples  # Usage examples for any command
 | List secrets | `sem-ai secret list` |
 | Flaky tests | `sem-ai test flaky --project <p>` |
 | Test locally in CI env | `sem-ai testbox warmup --project <p>` then `sem-ai testbox run --id <id> "cmd"` |
+| Watch CI after a push | `git push`, then `sem-ai watch <workflow-id>` (see `watch-after-push`) |
+
+## Project detection
+
+`sem-ai status`, `workflow list`, `health`, `diagnose`, `open`, and `analytics` auto-detect the project from the `origin` git remote (ssh or https) when `--project` is omitted — no need to pass it inside a checkout.
+
+Caveat: detection matches the remote URL against project `repo_url` and returns the **first match**. If several Semaphore projects point at the same git remote, it may pick the wrong one — pass `--project <name>` explicitly for multi-project repos. (To target a specific run regardless, filter `workflow list` by `commit_sha`; see the `watch-after-push` skill.)
 
 ## Sub-skills — load for deeper context
 
@@ -54,6 +61,7 @@ For detailed workflows with step-by-step examples, load the relevant sub-skill:
 - **Test analysis** → load `test-intelligence` — test results, flaky detection, frameworks
 - **Infrastructure** → load `manage-infra` — secrets, notifications, agents, tasks
 - **Monitoring** → load `project-health` — health checks, pass rates, trends
+- **After a push** → load `watch-after-push` — find the run for your commit and watch it to completion
 
 ## Safety
 
