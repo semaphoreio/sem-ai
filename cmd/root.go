@@ -77,7 +77,7 @@ var rootCmd = &cobra.Command{
 
 // commandSlug turns a cobra command path ("sem-ai analytics summary") into the
 // underscore-joined leaf path ("analytics_summary") used as the
-// x-semaphore-client-command header value. Returns "" for the bare root command.
+// x-client-command header value. Returns "" for the bare root command.
 func commandSlug(path string) string {
 	fields := strings.Fields(path)
 	if len(fields) <= 1 {

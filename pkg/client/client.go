@@ -18,7 +18,7 @@ import (
 var UserAgent = "sem-ai/dev"
 
 // Client identification for server-side request metrics. These are surfaced as
-// x-semaphore-client-* request headers so Semaphore can attribute API traffic by
+// x-client-* request headers so Semaphore can attribute API traffic by
 // surface (CLI vs MCP), command, and version. Source defaults to the CLI surface
 // and is overridden to "semai-mcp" when running as the MCP server. Command is the
 // underscore-joined cobra command path of the running command. Version mirrors
@@ -29,16 +29,16 @@ var (
 	Command string
 )
 
-// setClientHeaders attaches the x-semaphore-client-* identification headers.
+// setClientHeaders attaches the x-client-* identification headers.
 func setClientHeaders(h http.Header) {
 	if Source != "" {
-		h.Set("x-semaphore-client-source", Source)
+		h.Set("x-client-source", Source)
 	}
 	if Command != "" {
-		h.Set("x-semaphore-client-command", Command)
+		h.Set("x-client-command", Command)
 	}
 	if Version != "" {
-		h.Set("x-semaphore-client-version", Version)
+		h.Set("x-client-version", Version)
 	}
 }
 

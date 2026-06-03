@@ -140,9 +140,9 @@ func restoreClientMeta(s, c, v string) {
 func TestClientHeadersSent(t *testing.T) {
 	var gotSource, gotCommand, gotVersion string
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		gotSource = r.Header.Get("x-semaphore-client-source")
-		gotCommand = r.Header.Get("x-semaphore-client-command")
-		gotVersion = r.Header.Get("x-semaphore-client-version")
+		gotSource = r.Header.Get("x-client-source")
+		gotCommand = r.Header.Get("x-client-command")
+		gotVersion = r.Header.Get("x-client-version")
 		w.WriteHeader(200)
 		w.Write([]byte(`{}`))
 	}))
@@ -165,7 +165,7 @@ func TestClientHeadersSent(t *testing.T) {
 func TestClientCommandHeaderOmittedWhenEmpty(t *testing.T) {
 	var gotCommand string
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		gotCommand = r.Header.Get("x-semaphore-client-command")
+		gotCommand = r.Header.Get("x-client-command")
 		w.WriteHeader(200)
 		w.Write([]byte(`{}`))
 	}))
@@ -180,7 +180,7 @@ func TestClientCommandHeaderOmittedWhenEmpty(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	if gotCommand != "" {
-		t.Errorf("x-semaphore-client-command should be omitted when empty, got %q", gotCommand)
+		t.Errorf("x-client-command should be omitted when empty, got %q", gotCommand)
 	}
 }
 
