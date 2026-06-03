@@ -82,3 +82,19 @@ func TestFlakyTrendsEndpoint(t *testing.T) {
 		t.Error("invalid metric must error")
 	}
 }
+
+func TestClampPageSize(t *testing.T) {
+	cases := map[int]int{100000: 100, 101: 100, 100: 100, 50: 50, 1: 1, 0: 1, -5: 1}
+	for in, want := range cases {
+		if got := clampPageSize(in); got != want {
+			t.Errorf("clampPageSize(%d) = %d, want %d", in, got, want)
+		}
+	}
+	// and it flows through the param builders
+	if v := flakyListParams(flakyFilters{}, 1, 100000, "", ""); v.Get("page_size") != "100" {
+		t.Errorf("flakyListParams page_size not clamped: %q", v.Get("page_size"))
+	}
+	if v := pagedFilterParams(flakyFilters{}, 1, 100000); v.Get("page_size") != "100" {
+		t.Errorf("pagedFilterParams page_size not clamped: %q", v.Get("page_size"))
+	}
+}

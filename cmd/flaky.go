@@ -54,7 +54,7 @@ func (f flakyFilters) toValues() url.Values {
 func flakyListParams(f flakyFilters, page, pageSize int, sortField, sortDir string) url.Values {
 	v := f.toValues()
 	v.Set("page", fmt.Sprintf("%d", page))
-	v.Set("page_size", fmt.Sprintf("%d", pageSize))
+	v.Set("page_size", fmt.Sprintf("%d", clampPageSize(pageSize)))
 	if sortField != "" {
 		v.Set("sort_field", sortField)
 	}
@@ -67,8 +67,20 @@ func flakyListParams(f flakyFilters, page, pageSize int, sortField, sortDir stri
 func pagedFilterParams(f flakyFilters, page, pageSize int) url.Values {
 	v := f.toValues()
 	v.Set("page", fmt.Sprintf("%d", page))
-	v.Set("page_size", fmt.Sprintf("%d", pageSize))
+	v.Set("page_size", fmt.Sprintf("%d", clampPageSize(pageSize)))
 	return v
+}
+
+// clampPageSize bounds a requested page size to [1, 100] (the server also caps at 100).
+func clampPageSize(n int) int {
+	switch {
+	case n > 100:
+		return 100
+	case n < 1:
+		return 1
+	default:
+		return n
+	}
 }
 
 func addFilterFlags(cmd *cobra.Command, f *flakyFilters) {
@@ -116,7 +128,10 @@ func emitJSON(resp *client.Response) error {
 		return fmt.Errorf("API returned %d", resp.StatusCode)
 	}
 	var result any
-	json.Unmarshal(resp.Body, &result)
+	if err := json.Unmarshal(resp.Body, &result); err != nil {
+		output.Error("parse_error", fmt.Sprintf("failed to decode response: %v", err), 1)
+		return err
+	}
 	output.Result(result)
 	return nil
 }
