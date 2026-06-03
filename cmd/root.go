@@ -48,6 +48,7 @@ var rootCmd = &cobra.Command{
 		// the command being executed.
 		client.Source = invocationSource
 		client.Command = commandSlug(cmd.CommandPath())
+		client.NewTraceParent()
 
 		if examplesFlag {
 			if cmd.Example != "" {

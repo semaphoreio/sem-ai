@@ -184,6 +184,29 @@ func TestClientCommandHeaderOmittedWhenEmpty(t *testing.T) {
 	}
 }
 
+func TestTraceParentSent(t *testing.T) {
+	var gotTP string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotTP = r.Header.Get("traceparent")
+		w.WriteHeader(200)
+		w.Write([]byte(`{}`))
+	}))
+	defer srv.Close()
+
+	defer func() { TraceParent = "" }()
+	NewTraceParent()
+
+	host := strings.TrimPrefix(srv.URL, "http://")
+	c := newTestClient(host, "tok")
+	if _, err := c.Get("pipelines", "p1"); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	// W3C traceparent: 00-<32hex>-<16hex>-01, total length 55.
+	if len(gotTP) != 55 || !strings.HasPrefix(gotTP, "00-") || !strings.HasSuffix(gotTP, "-01") {
+		t.Errorf("traceparent = %q, want W3C 00-<32hex>-<16hex>-01", gotTP)
+	}
+}
+
 // ---- GetExternal does NOT send auth headers ------------------------------------
 
 func TestGetExternalNoAuthHeader(t *testing.T) {

@@ -2,6 +2,8 @@ package client
 
 import (
 	"bytes"
+	"crypto/rand"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -27,9 +29,13 @@ var (
 	Version = "dev"
 	Source  = "semai-cli"
 	Command string
+	// TraceParent is a W3C traceparent generated once per command (NewTraceParent),
+	// shared across all of the command's API calls so the server can correlate and
+	// count them by trace-id.
+	TraceParent string
 )
 
-// setClientHeaders attaches the x-client-* identification headers.
+// setClientHeaders attaches the x-client-* identification headers + traceparent.
 func setClientHeaders(h http.Header) {
 	if Source != "" {
 		h.Set("x-client-source", Source)
@@ -40,6 +46,22 @@ func setClientHeaders(h http.Header) {
 	if Version != "" {
 		h.Set("x-client-version", Version)
 	}
+	if TraceParent != "" {
+		h.Set("traceparent", TraceParent)
+	}
+}
+
+// NewTraceParent generates a fresh W3C traceparent (00-<trace-id>-<span-id>-01)
+// for one command invocation. The trace-id is shared across every API call the
+// command makes, so the server can group them — count(distinct trace-id) per
+// command = invocations, distinct from the per-call client_request metric. It's
+// also a real OTel trace context, so a future collector picks it up for free.
+func NewTraceParent() {
+	traceID := make([]byte, 16)
+	spanID := make([]byte, 8)
+	_, _ = rand.Read(traceID)
+	_, _ = rand.Read(spanID)
+	TraceParent = fmt.Sprintf("00-%s-%s-01", hex.EncodeToString(traceID), hex.EncodeToString(spanID))
 }
 
 const (
