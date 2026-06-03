@@ -139,7 +139,11 @@ var testFlakyCmd = &cobra.Command{
 	Long: `Analyzes the last N workflows for a project and finds tests that
 sometimes pass and sometimes fail — i.e. flaky tests.
 
-Returns each flaky test with its pass/fail ratio across recent runs.`,
+Returns each flaky test with its pass/fail ratio across recent runs.
+
+This is a quick per-pipeline snapshot from junit artifacts (works even without
+the flaky-tests backend). For history-backed flaky data (weeks of disruptions,
+pass-rate, labels) use 'sem-ai flaky list'.`,
 	Example: `  sem-ai test flaky --project my-project
   sem-ai test flaky --project my-project --branch main --count 10`,
 	RunE: func(cmd *cobra.Command, args []string) error {
