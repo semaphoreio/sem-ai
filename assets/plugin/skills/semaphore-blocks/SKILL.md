@@ -252,8 +252,10 @@ sem-ai pipeline show <pipeline-id>
 To find pipeline IDs for the current branch:
 
 ```
-sem-ai status --project <name> --branch <branch>
+sem-ai status        # --project and --branch are optional — auto-detected from origin + HEAD
 ```
+
+Pass `--project <name>` / `--branch <branch>` only to override the auto-detection (or when the repo maps to multiple Semaphore projects).
 
 To pre-flight YAML syntax before pushing:
 
@@ -262,6 +264,8 @@ sem-ai yaml validate --file .semaphore/semaphore.yml
 ```
 
 ### Polling a pipeline to terminal state — `result`, not `state`
+
+For the common "is it done / is it green" case, prefer `sem-ai watch <wf>` (blocks until terminal) or the poll-friendly `sem-ai status --exit-code` (`until sem-ai status --exit-code; do sleep 20; done` watches to green). The bespoke `until` loop below explains **why** those wait on `result` — keep it as the reference for callers building custom loops.
 
 When waiting for a pipeline to finish (e.g. background `until` loops watching first-run completion), check the **`result`** field, not `state`:
 

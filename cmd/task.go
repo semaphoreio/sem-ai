@@ -234,8 +234,8 @@ func yamlEscape(s string) string {
 }
 
 func init() {
-	taskListCmd.Flags().StringVar(&taskProjectFlag, "project", "", "project name or ID (required)")
-	taskCreateCmd.Flags().StringVar(&taskCreateProjectFlag, "project", "", "project name or ID (required)")
+	taskListCmd.Flags().StringVar(&taskProjectFlag, "project", "", "project name or ID (auto-detected from git remote if omitted)")
+	taskCreateCmd.Flags().StringVar(&taskCreateProjectFlag, "project", "", "project name or ID (auto-detected from git remote if omitted)")
 	taskCreateCmd.Flags().StringVar(&taskCreateBranchFlag, "branch", "main", "branch to run on")
 	taskCreateCmd.Flags().StringVar(&taskCreateFileFlag, "file", ".semaphore/semaphore.yml", "pipeline YAML file")
 	taskCreateCmd.Flags().StringVar(&taskCreateCronFlag, "cron", "", "cron expression for recurring tasks")

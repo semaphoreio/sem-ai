@@ -122,8 +122,12 @@ sem-ai secret create <NAME> --env <NAME>=<value>
 
 ### Step 9 — Watch the first workflow
 
+Hand off to the `watch-after-push` skill: find the run for the pushed HEAD commit, then watch it to completion. `--project` auto-detects from the `origin` remote — pass it only to override or when the repo maps to multiple projects.
+
 ```bash
-sem-ai workflow list --project <name> --limit 1
+# Locate the run by the pushed HEAD commit, then watch it to green:
+sem-ai workflow list --limit 1   # confirm the run for the new commit; pass --project only to override
+sem-ai watch <wf>
 ```
 
 On failure: `sem-ai job log <job-id>`. Iterate fixes; surface any patterns worth feeding back as skill improvements.

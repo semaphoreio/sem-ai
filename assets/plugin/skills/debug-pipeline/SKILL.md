@@ -12,7 +12,7 @@ user-invocable: false
 sem-ai diagnose <workflow-id>
 # or auto-detect from git:
 sem-ai diagnose
-sem-ai diagnose --project my-app --branch main
+sem-ai diagnose --project my-app --branch main  # --project/--branch optional, auto-detected from origin + HEAD
 ```
 
 Returns: pipeline result, failed blocks, failed jobs with log tails AND parsed test results (file:line:message).
@@ -21,7 +21,7 @@ Returns: pipeline result, failed blocks, failed jobs with log tails AND parsed t
 
 ### 1. Find the workflow
 ```bash
-sem-ai workflow list --project my-app --branch feature-x
+sem-ai workflow list --branch feature-x  # --project/--branch optional, auto-detected from origin + HEAD
 ```
 
 ### 2. See pipeline structure
@@ -59,7 +59,7 @@ sem-ai troubleshoot job <id>
 
 ### 6. Check if flaky
 ```bash
-sem-ai test flaky --project my-app --count 10
+sem-ai test flaky --count 10  # --project optional, auto-detected from origin
 ```
 
 ## After fixing
@@ -70,6 +70,8 @@ sem-ai rerun-failed <pipeline-id>    # rebuild failed blocks only
 sem-ai watch <new-workflow-id>       # wait for completion
 sem-ai test summary --pipeline <id>  # verify
 ```
+
+`sem-ai watch <id>` is for when you already hold the id from `workflow rerun` output. To re-find and watch the rerun for your *exact* commit (e.g. after pushing the fix), use the **watch-after-push** pattern: find the run by `commit_sha`, then `sem-ai watch` it.
 
 ## Common patterns
 

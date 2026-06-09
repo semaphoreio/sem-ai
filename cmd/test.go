@@ -150,10 +150,6 @@ pass-rate, labels) use 'sem-ai flaky list'.`,
 		if !config.IsConfigured() {
 			return fmt.Errorf("not configured — run 'sem-ai connect' first")
 		}
-		if testFlakyProjectFlag == "" {
-			return fmt.Errorf("--project is required")
-		}
-
 		projectID, err := resolveProjectID(testFlakyProjectFlag)
 		if err != nil {
 			output.Error("project_error", err.Error(), 1)
@@ -189,10 +185,7 @@ pass-rate, labels) use 'sem-ai flaky list'.`,
 			return err
 		}
 
-		limit := testFlakyCountFlag
-		if limit > len(workflows) {
-			limit = len(workflows)
-		}
+		limit := min(testFlakyCountFlag, len(workflows))
 
 		// Track test outcomes across workflows
 		type testKey struct{ name, pkg string }
@@ -412,7 +405,7 @@ func decompressGzip(data []byte) ([]byte, error) {
 func init() {
 	testReportCmd.Flags().StringVar(&testPipelineFlag, "pipeline", "", "pipeline ID (required)")
 	testSummaryCmd.Flags().StringVar(&testSummaryPipelineFlag, "pipeline", "", "pipeline ID (required)")
-	testFlakyCmd.Flags().StringVar(&testFlakyProjectFlag, "project", "", "project name or ID (required)")
+	testFlakyCmd.Flags().StringVar(&testFlakyProjectFlag, "project", "", "project name or ID (auto-detected from git remote if omitted)")
 	testFlakyCmd.Flags().StringVar(&testFlakyBranchFlag, "branch", "", "filter by branch")
 	testFlakyCmd.Flags().IntVar(&testFlakyCountFlag, "count", 5, "number of recent workflows to analyze")
 

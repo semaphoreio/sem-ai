@@ -371,7 +371,7 @@ func init() {
 	pipelinePromoteCmd.Flags().BoolVar(&promoteOverrideFlag, "override", false, "override promotion conditions (e.g. promote despite failures)")
 	pipelinePromoteCmd.Flags().StringArrayVar(&promoteParamsFlag, "param", nil, "promotion parameters as key=value pairs")
 
-	pipelineListCmd.Flags().StringVar(&pipelineListProjectFlag, "project", "", "project name or ID (required)")
+	pipelineListCmd.Flags().StringVar(&pipelineListProjectFlag, "project", "", "project name or ID (auto-detected from git remote if omitted)")
 	pipelineCmd.AddCommand(pipelineListCmd)
 	pipelineCmd.AddCommand(pipelineShowCmd)
 	pipelineCmd.AddCommand(pipelineStopCmd)

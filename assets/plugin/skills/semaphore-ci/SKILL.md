@@ -29,7 +29,8 @@ sem-ai <any-command> --examples  # Usage examples for any command
 
 | Task | Command |
 |------|---------|
-| CI status | `sem-ai status --project <p> --branch <b>` |
+| CI status | `sem-ai status` (`--project`/`--branch` auto-detect; `--pr N` resolves a PR's workflow) |
+| Did my push pass? / watch CI to green | `sem-ai status` (or `until sem-ai status --exit-code; do sleep 20; done`); see `watch-after-push` |
 | Why did CI fail? | `sem-ai diagnose <workflow-id>` |
 | Project health | `sem-ai health --project <p>` |
 | Job logs | `sem-ai job log <job-id>` |
@@ -41,8 +42,17 @@ sem-ai <any-command> --examples  # Usage examples for any command
 | Validate YAML | `sem-ai yaml validate --file .semaphore/semaphore.yml` |
 | Server diagnostics | `sem-ai troubleshoot workflow <id>` |
 | List secrets | `sem-ai secret list` |
-| Flaky tests | `sem-ai test flaky --project <p>` |
-| Test locally in CI env | `sem-ai testbox warmup --project <p>` then `sem-ai testbox run --id <id> "cmd"` |
+| Flaky tests | `sem-ai test flaky` (`--project` optional; auto-detects) |
+| Test locally in CI env | `sem-ai testbox warmup` (`--project` optional) then `sem-ai testbox run --id <id> "cmd"` |
+| Watch CI after a push | `git push`, then `sem-ai watch <workflow-id>` (see `watch-after-push`) |
+
+For the is-it-green check, prefer `sem-ai status` — it keeps the failure drill (`sem-ai diagnose <workflow-id>`) one tool away. Your git host's own checks (`gh pr checks` on GitHub, or the GitLab/Bitbucket equivalent) mirror the same Semaphore result and are a fine fallback when sem-ai isn't connected — Semaphore connects to any of those hosts.
+
+## Project detection
+
+`--project` is optional on all repo-scoped commands (status, workflow list/run, pipeline list, deploy targets/create, task list/create, test flaky, diagnose, health, open, analytics) — it auto-detects from the `origin` git remote (ssh or https) when omitted, so there's no need to pass it inside a checkout. `--branch` likewise auto-detects from HEAD; `sem-ai status` pins the current HEAD commit (`"matched_by":"commit_sha"`, falling back to `"latest_on_branch"`). Pass `--project`/`--branch` only to override.
+
+Caveat: if the repo maps to **multiple** Semaphore projects, `sem-ai status` returns all of them (`"multiple_projects": true`) instead of guessing — pass `--project <name>` to pick one. (To target a specific run regardless, filter `workflow list` by `commit_sha`; see the `watch-after-push` skill.)
 
 ## Sub-skills — load for deeper context
 
@@ -54,6 +64,7 @@ For detailed workflows with step-by-step examples, load the relevant sub-skill:
 - **Test analysis** → load `test-intelligence` — test results, flaky detection, frameworks
 - **Infrastructure** → load `manage-infra` — secrets, notifications, agents, tasks
 - **Monitoring** → load `project-health` — health checks, pass rates, trends
+- **After a push** → load `watch-after-push` — find the run for your commit and watch it to completion
 
 ## Safety
 
