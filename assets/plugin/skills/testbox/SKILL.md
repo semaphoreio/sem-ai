@@ -62,7 +62,7 @@ Or let it auto-expire after the duration/idle timeout.
 
 ```bash
 # Start of task
-TESTBOX=$(sem-ai testbox warmup --project my-app | jq -r '.testbox_id')
+TESTBOX=$(sem-ai testbox warmup | jq -r '.testbox_id')   # --project auto-detected from origin (pass it only to override)
 
 # Iterate on code
 # ... make changes ...
@@ -71,10 +71,9 @@ sem-ai testbox run --id $TESTBOX "go test ./..."
 sem-ai testbox run --id $TESTBOX "go test ./..."
 # tests pass!
 
-# Push and verify in real CI
+# After tests pass, push and verify in real CI — load the watch-after-push skill
+# (it finds the run for your exact commit_sha and watches it).
 git push
-sem-ai workflow list --project my-app --branch $(git branch --show-current)
-sem-ai watch <workflow-id>
 
 # Clean up
 sem-ai testbox stop --id $TESTBOX

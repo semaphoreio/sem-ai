@@ -29,7 +29,8 @@ sem-ai <any-command> --examples  # Usage examples for any command
 
 | Task | Command |
 |------|---------|
-| CI status | `sem-ai status --project <p> --branch <b>` |
+| CI status | `sem-ai status` (`--project`/`--branch` auto-detect; `--pr N` resolves a PR's workflow) |
+| Did my push pass? / watch CI to green | `sem-ai status` (or `until sem-ai status --exit-code; do sleep 20; done`); see `watch-after-push` |
 | Why did CI fail? | `sem-ai diagnose <workflow-id>` |
 | Project health | `sem-ai health --project <p>` |
 | Job logs | `sem-ai job log <job-id>` |
@@ -41,15 +42,17 @@ sem-ai <any-command> --examples  # Usage examples for any command
 | Validate YAML | `sem-ai yaml validate --file .semaphore/semaphore.yml` |
 | Server diagnostics | `sem-ai troubleshoot workflow <id>` |
 | List secrets | `sem-ai secret list` |
-| Flaky tests | `sem-ai test flaky --project <p>` |
-| Test locally in CI env | `sem-ai testbox warmup --project <p>` then `sem-ai testbox run --id <id> "cmd"` |
+| Flaky tests | `sem-ai test flaky` (`--project` optional; auto-detects) |
+| Test locally in CI env | `sem-ai testbox warmup` (`--project` optional) then `sem-ai testbox run --id <id> "cmd"` |
 | Watch CI after a push | `git push`, then `sem-ai watch <workflow-id>` (see `watch-after-push`) |
+
+Prefer `sem-ai status` over `gh pr checks` for the is-it-green check — it reads the same Semaphore status and keeps the failure drill (`sem-ai diagnose <workflow-id>`) one tool away; `gh pr checks` is an acceptable fallback only when sem-ai isn't connected.
 
 ## Project detection
 
-`sem-ai status`, `workflow list`, `health`, `diagnose`, `open`, and `analytics` auto-detect the project from the `origin` git remote (ssh or https) when `--project` is omitted — no need to pass it inside a checkout.
+`--project` is optional on all repo-scoped commands (status, workflow list/run, pipeline list, deploy targets/create, task list/create, test flaky, diagnose, health, open, analytics) — it auto-detects from the `origin` git remote (ssh or https) when omitted, so there's no need to pass it inside a checkout. `--branch` likewise auto-detects from HEAD; `sem-ai status` pins the current HEAD commit (`"matched_by":"commit_sha"`, falling back to `"latest_on_branch"`). Pass `--project`/`--branch` only to override.
 
-Caveat: detection matches the remote URL against project `repo_url` and returns the **first match**. If several Semaphore projects point at the same git remote, it may pick the wrong one — pass `--project <name>` explicitly for multi-project repos. (To target a specific run regardless, filter `workflow list` by `commit_sha`; see the `watch-after-push` skill.)
+Caveat: if the repo maps to **multiple** Semaphore projects, `sem-ai status` returns all of them (`"multiple_projects": true`) instead of guessing — pass `--project <name>` to pick one. (To target a specific run regardless, filter `workflow list` by `commit_sha`; see the `watch-after-push` skill.)
 
 ## Sub-skills — load for deeper context
 

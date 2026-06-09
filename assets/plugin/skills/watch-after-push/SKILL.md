@@ -44,7 +44,8 @@ fi
 
 ## Notes
 
-- `sem-ai workflow list` and `sem-ai status` auto-detect the project from the `origin` remote. Pass `--project <name>` only when detection is wrong.
-- **Repo-URL collisions:** if more than one Semaphore project points at the same git remote, detection returns the *first* match. The `commit_sha` filter above keeps you on the right run regardless; if `watch` still tracks the wrong project, pin it with `--project`.
+- `sem-ai workflow list` and `sem-ai status` auto-detect the project from the `origin` remote. Pass `--project <name>` only to override, or when the repo maps to several projects.
+- **Shortcut:** `sem-ai status` already pins the current HEAD commit and returns `.workflow_id` — you can skip the loop above with `WF=$(sem-ai status --format json | jq -r .workflow_id)` once the run exists, or just poll `until sem-ai status --exit-code; do sleep 20; done` (0=pass, 8=pending, 1=fail).
+- **Repo-URL collisions:** if more than one Semaphore project points at the same git remote, detection returns *all* of them — `sem-ai status` reports `"multiple_projects": true` instead of guessing. The `commit_sha` filter above keeps the loop on the right run; if more than one project ran the same commit, pin the one you mean with `--project`.
 - `sem-ai watch` exits once every pipeline in the workflow reaches a terminal state, and reflects pass/fail in its output. Default poll interval 30s (min 5s, `--interval`).
 - To diagnose *why* a watched run failed, hand off to the `debug-pipeline` skill (`sem-ai diagnose <workflow-id>`).
