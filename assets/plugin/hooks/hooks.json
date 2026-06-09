@@ -12,7 +12,7 @@
           {
             "type": "command",
             "command": "bash \"${CLAUDE_PLUGIN_ROOT}/hooks/detect-semaphore.sh\"",
-            "timeout": 4
+            "timeout": 12
           }
         ]
       }
