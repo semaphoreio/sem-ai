@@ -8,6 +8,11 @@
             "type": "command",
             "command": "command -v sem-ai >/dev/null 2>&1 && sem-ai version --hook || printf '{\"systemMessage\": \"sem-ai binary not found on PATH. Install: curl -fsSL https://raw.githubusercontent.com/semaphoreio/sem-ai/main/install.sh | sh\"}\\n'",
             "timeout": 4
+          },
+          {
+            "type": "command",
+            "command": "bash \"${CLAUDE_PLUGIN_ROOT}/hooks/detect-semaphore.sh\"",
+            "timeout": 12
           }
         ]
       }

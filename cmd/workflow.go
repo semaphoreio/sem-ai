@@ -124,10 +124,18 @@ var workflowShowCmd = &cobra.Command{
 }
 
 // resolveProjectID converts a project name to its ID.
-// Tries direct GET first, falls back to listing all projects and matching by name.
+// When nameOrID is empty it auto-detects the project from the git remote
+// ("origin"); detectProject errors if the remote matches zero or several
+// projects, so callers no longer need to require --project explicitly.
+// Otherwise it tries a direct GET, then falls back to listing all projects
+// and matching by name.
 func resolveProjectID(nameOrID string) (string, error) {
 	if nameOrID == "" {
-		return "", fmt.Errorf("--project is required")
+		detected, err := detectProject()
+		if err != nil {
+			return "", fmt.Errorf("%w — pass --project", err)
+		}
+		nameOrID = detected
 	}
 
 	c := client.New()
@@ -175,7 +183,11 @@ func resolveProjectID(nameOrID string) (string, error) {
 // while query-param endpoints still want the ID.
 func resolveProject(nameOrID string) (name, id string, err error) {
 	if nameOrID == "" {
-		return "", "", fmt.Errorf("--project is required")
+		detected, derr := detectProject()
+		if derr != nil {
+			return "", "", fmt.Errorf("%w — pass --project", derr)
+		}
+		nameOrID = detected
 	}
 	c := client.New()
 
@@ -348,9 +360,9 @@ var workflowRunCmd = &cobra.Command{
 }
 
 func init() {
-	workflowListCmd.Flags().StringVar(&wfProjectFlag, "project", "", "project name or ID (required)")
+	workflowListCmd.Flags().StringVar(&wfProjectFlag, "project", "", "project name or ID (auto-detected from git remote if omitted)")
 	workflowListCmd.Flags().StringVar(&wfBranchFlag, "branch", "", "filter by branch name")
-	workflowRunCmd.Flags().StringVar(&wfRunProjectFlag, "project", "", "project name or ID (required)")
+	workflowRunCmd.Flags().StringVar(&wfRunProjectFlag, "project", "", "project name or ID (auto-detected from git remote if omitted)")
 	workflowRunCmd.Flags().StringVar(&wfRunBranchFlag, "branch", "", "branch to run workflow on")
 	workflowCmd.AddCommand(workflowListCmd)
 	workflowCmd.AddCommand(workflowShowCmd)

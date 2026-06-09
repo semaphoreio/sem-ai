@@ -314,7 +314,7 @@ func (s *deployTargetSpec) toBody(name string) (map[string]any, error) {
 }
 
 func bindDeploySpecFlags(cmd *cobra.Command, s *deployTargetSpec) {
-	cmd.Flags().StringVar(&s.projectFlag, "project", "", "project name or ID (required on create)")
+	cmd.Flags().StringVar(&s.projectFlag, "project", "", "project name or ID (auto-detected from git remote if omitted)")
 	cmd.Flags().StringVar(&s.description, "description", "", "target description")
 	cmd.Flags().StringVar(&s.url, "url", "", "target URL")
 
@@ -439,7 +439,7 @@ var deployUpdateCmd = &cobra.Command{
 }
 
 func init() {
-	deployTargetsCmd.Flags().StringVar(&deployTargetsProjectFlag, "project", "", "project name or ID (required)")
+	deployTargetsCmd.Flags().StringVar(&deployTargetsProjectFlag, "project", "", "project name or ID (auto-detected from git remote if omitted)")
 
 	bindDeploySpecFlags(deployCreateCmd, deployCreateSpec)
 

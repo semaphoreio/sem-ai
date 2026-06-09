@@ -133,7 +133,7 @@ When invoked, do the following in order:
      - "Secrets required" — list created via `sem-ai secret create`
      - "Differences in behavior" — fail-fast dropped, runner image picked, PR-trigger config moved server-side, etc.
      - "Speed suggestions" — sharding candidates flagged in step 4
-9. **First run**: after merge, watch with `sem-ai workflow_list --project <name> --limit 1` and `sem-ai job_log` on any failure. Iterate.
+9. **First run**: after merge, hand off to `watch-after-push` — find the run by `commit_sha` and `sem-ai watch` it to completion (project auto-detects from `origin`; pass `--project` only to override or when the repo maps to multiple). On any failure, drill in with `sem-ai workflow list` and `sem-ai job log`. Iterate.
 
 ## PR body template
 

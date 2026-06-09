@@ -54,7 +54,7 @@ codex plugin marketplace add semaphoreio/sem-ai
 codex plugin add sem-ai@semaphoreio
 ```
 
-The plugin drops every sem-ai skill (debug-pipeline, deploy, gha-to-semaphore, init, manage-infra, probe-agent-environment, project-health, sem-ai-bootstrap, semaphore-blocks, semaphore-ci, semaphore-promotions, semaphore-test-results, semaphore-toolbox, test-intelligence, testbox) into your host.
+The plugin drops every sem-ai skill (debug-pipeline, deploy, gha-to-semaphore, init, manage-infra, probe-agent-environment, project-health, sem-ai-bootstrap, semaphore-blocks, semaphore-ci, semaphore-promotions, semaphore-test-results, semaphore-toolbox, test-intelligence, testbox, watch-after-push) into your host.
 
 Claude Code refreshes registered marketplaces at session start, picks up the new plugin version, and applies it automatically — there is no manifest flag to set for this. To force an immediate refresh:
 
@@ -77,6 +77,23 @@ User-invocable skills can be triggered directly with a namespaced slash command 
 | `/sem-ai:gha-to-semaphore` | Translate only — same procedure as `init`'s translate path, scoped to converting `.github/workflows/*` |
 
 Other skills are loaded automatically when their description keywords match the user's prompt; the slash commands above are explicit triggers for the most common entry points.
+
+### Skills-only install (`npx skills`, any agent)
+
+Prefer the full plugin above on Claude Code / Codex — it also wires the MCP server and the `SessionStart` hooks. For other agents (Cursor, OpenCode, …) or when you want just the skill instructions, use the cross-agent [`skills`](https://github.com/vercel-labs/skills) installer. It reads sem-ai's `.claude-plugin/marketplace.json` manifest, so it finds the bundle even though the skills live under `assets/plugin/skills/`:
+
+```sh
+npx skills add semaphoreio/sem-ai --list             # list available skills
+npx skills add semaphoreio/sem-ai --all              # install all of them
+npx skills add semaphoreio/sem-ai --skill semaphore-ci --skill watch-after-push
+npx skills add semaphoreio/sem-ai --all -g           # user-level (every repo)
+npx skills add semaphoreio/sem-ai --all --agent cursor opencode
+```
+
+Two caveats:
+
+- **Skills only.** `npx skills` installs `SKILL.md` files — not the MCP server and not the `SessionStart` hooks (release-update check, Semaphore-repo awareness). For those, use the plugin install above.
+- **The CLI is a prerequisite.** Every skill shells out to `sem-ai`; install the binary first (see [Install](#install)) and run `sem-ai connect`. `npx skills` installs instructions, not the CLI.
 
 ## Updates
 
