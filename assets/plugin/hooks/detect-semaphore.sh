@@ -15,9 +15,21 @@ base="This repository is built on Semaphore CI (.semaphore/ present). For any CI
 
 # Live current-branch CI state — bounded so it can never stall session start.
 # `sem-ai status` auto-detects project + branch and pins the current HEAD commit.
+# Timeout is plain bash (background job + watchdog) — no perl/timeout dependency,
+# so the hook keeps working even where those aren't installed.
 live=""
 if command -v sem-ai >/dev/null 2>&1 && command -v jq >/dev/null 2>&1; then
-  s="$(perl -e 'alarm shift; exec @ARGV' 8 sem-ai status --format json 2>/dev/null || true)"
+  s=""
+  tmp="$(mktemp 2>/dev/null || echo "/tmp/sem-ai-status.$$")"
+  sem-ai status --format json >"$tmp" 2>/dev/null &
+  sa_pid=$!
+  ( sleep 8; kill "$sa_pid" 2>/dev/null ) >/dev/null 2>&1 &
+  wd_pid=$!
+  disown "$wd_pid" 2>/dev/null || true   # don't announce the watchdog when we kill it
+  wait "$sa_pid" 2>/dev/null
+  kill "$wd_pid" 2>/dev/null || true
+  s="$(cat "$tmp" 2>/dev/null || true)"
+  rm -f "$tmp"
   if [ -n "$s" ]; then
     live="$(printf '%s' "$s" | jq -r '
       if .multiple_projects == true then
