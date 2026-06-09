@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/url"
+	"strings"
 
 	"github.com/semaphoreio/sem-ai/pkg/client"
 	"github.com/semaphoreio/sem-ai/pkg/config"
@@ -13,186 +14,305 @@ import (
 )
 
 var (
-	statusProjectFlag string
-	statusBranchFlag  string
+	statusProjectFlag  string
+	statusBranchFlag   string
+	statusPRFlag       string
+	statusExitCodeFlag bool
 )
+
+// Process exit codes for `status --exit-code`, so poll loops can branch on them.
+// 0 pass · 8 pending · 1 fail · 2 ambiguous (multi-project) · 3 no workflow / undetected.
+const (
+	exitPass       = 0
+	exitFail       = 1
+	exitAmbiguous  = 2
+	exitNoWorkflow = 3
+	exitPending    = 8
+)
+
+// statusExitCode is set by the status command when --exit-code is requested and
+// read by the CLI Execute() wrapper (cmd/root.go), which is the ONLY place that
+// may call os.Exit. The MCP server runs commands in-process via executeCobra,
+// which calls rootCmd.Execute() directly and never routes through Execute() —
+// so this never terminates the long-lived MCP process.
+var statusExitCode int
 
 var statusCmd = &cobra.Command{
 	Use:   "status",
-	Short: "Quick CI status for a branch or PR",
-	Long:  "Compound command: finds workflows for the current branch/PR, shows pipeline and job status summary.",
-	Example: `  sem-ai status
+	Short: "Quick CI status for the current branch, a PR, or a project",
+	Long: "Compound command: finds the CI workflow for the current commit/branch (or a PR), " +
+		"shows the pipeline and block status. Project and branch are auto-detected from the git " +
+		"remote and HEAD when not given. With --exit-code, returns a poll-friendly exit code.",
+	Example: `  sem-ai status                      # current repo, current branch, current commit
   sem-ai status --branch main
-  sem-ai status --project my-project --branch feature-x`,
+  sem-ai status --pr 422
+  sem-ai status --project my-project --branch feature-x
+  until sem-ai status --exit-code; do sleep 20; done   # watch to green`,
 	RunE: func(cmd *cobra.Command, args []string) error {
+		statusExitCode = 0
 		if !config.IsConfigured() {
 			return fmt.Errorf("not configured — run 'sem-ai connect' first")
 		}
 
-		// Resolve project
-		project := statusProjectFlag
-		if project == "" {
-			p, err := detectProject()
+		// Resolve candidate projects. An explicit --project pins exactly one;
+		// otherwise the git remote may match several Semaphore projects — we
+		// keep all of them and let the workflow lookup disambiguate.
+		var candidates []projectCandidate
+		if statusProjectFlag != "" {
+			id, err := resolveProjectID(statusProjectFlag)
 			if err != nil {
-				output.Error("context_error", "could not detect project from git remote — use --project", 1)
+				output.Error("project_error", err.Error(), 1)
 				return err
 			}
-			project = p
+			candidates = []projectCandidate{{Name: statusProjectFlag, ID: id}}
+		} else {
+			cands, err := detectProjectCandidates()
+			if err != nil {
+				if statusExitCodeFlag {
+					statusExitCode = exitNoWorkflow
+					return nil
+				}
+				output.Error("context_error", err.Error()+" — use --project", 1)
+				return err
+			}
+			candidates = cands
 		}
 
-		projectID, err := resolveProjectID(project)
-		if err != nil {
-			output.Error("project_error", err.Error(), 1)
-			return err
-		}
-
-		// Resolve branch
+		// Resolve the selector: a PR number (label) takes precedence over branch.
 		branch := statusBranchFlag
-		if branch == "" {
-			b, err := gitutil.CurrentBranch()
-			if err == nil {
+		if branch == "" && statusPRFlag == "" {
+			if b, err := gitutil.CurrentBranch(); err == nil {
 				branch = b
 			}
 		}
-
-		// Fetch workflows
-		params := url.Values{}
-		params.Set("project_id", projectID)
-		if branch != "" {
-			params.Set("branch_name", branch)
+		wantSHA := ""
+		if statusPRFlag == "" {
+			if sha, err := gitutil.CurrentCommitSHA(); err == nil {
+				wantSHA = sha
+			}
 		}
 
 		c := client.New()
-		resp, err := c.ListWithParams("plumber-workflows", params)
-		if err != nil {
-			output.Error("api_error", err.Error(), 1)
-			return err
-		}
-		if resp.StatusCode != 200 {
-			output.Error("api_error", fmt.Sprintf("HTTP %d", resp.StatusCode), resp.StatusCode)
-			return fmt.Errorf("API returned %d", resp.StatusCode)
-		}
-
-		var workflows []struct {
-			WfID         string `json:"wf_id"`
-			BranchName   string `json:"branch_name"`
-			CommitSHA    string `json:"commit_sha"`
-			InitialPplID string `json:"initial_ppl_id"`
-		}
-		if err := json.Unmarshal(resp.Body, &workflows); err != nil {
-			output.Error("parse_error", err.Error(), 1)
-			return err
+		var found []map[string]any
+		for _, cand := range candidates {
+			st, ok, err := fetchProjectStatus(c, cand, branch, statusPRFlag, wantSHA)
+			if err != nil {
+				output.Error("api_error", err.Error(), 1)
+				return err
+			}
+			if ok {
+				found = append(found, st)
+			}
 		}
 
-		if len(workflows) == 0 {
+		switch len(found) {
+		case 0:
+			selector := branch
+			if statusPRFlag != "" {
+				selector = "PR #" + statusPRFlag
+			}
+			if statusExitCodeFlag {
+				statusExitCode = exitNoWorkflow
+				return nil
+			}
 			output.Result(map[string]any{
-				"project": project,
-				"branch":  branch,
 				"status":  "no_workflows",
-				"message": "no workflows found for this branch",
+				"branch":  branch,
+				"message": fmt.Sprintf("no workflow found for %q in the detected project(s)", selector),
+			})
+			return nil
+		case 1:
+			st := found[0]
+			if statusExitCodeFlag {
+				statusExitCode = exitCodeForBucket(st["result_bucket"])
+			}
+			output.Result(st)
+			return nil
+		default:
+			// The repo maps to several Semaphore projects that each ran this
+			// commit/branch — never guess which one "is" the build.
+			if statusExitCodeFlag {
+				statusExitCode = exitAmbiguous
+			}
+			names := make([]string, len(found))
+			for i, st := range found {
+				names[i], _ = st["project"].(string)
+			}
+			output.Result(map[string]any{
+				"multiple_projects": true,
+				"message": fmt.Sprintf("this repo maps to %d Semaphore projects (%s) that ran this commit — pass --project to pick one",
+					len(found), strings.Join(names, ", ")),
+				"projects": found,
 			})
 			return nil
 		}
-
-		// Get latest workflow's pipeline (detailed=true to include blocks)
-		latest := workflows[0]
-		pplParams := url.Values{}
-		pplParams.Set("detailed", "true")
-		pplResp, err := c.ListWithParams("pipelines/"+latest.InitialPplID, pplParams)
-		if err != nil {
-			output.Error("api_error", err.Error(), 1)
-			return err
-		}
-
-		var pplData struct {
-			Pipeline struct {
-				PplID        string `json:"ppl_id"`
-				Name         string `json:"name"`
-				State        string `json:"state"`
-				Result       string `json:"result"`
-				ResultReason string `json:"result_reason"`
-				CreatedAt    string `json:"created_at"`
-				DoneAt       string `json:"done_at"`
-			} `json:"pipeline"`
-			Blocks []struct {
-				Name   string `json:"name"`
-				State  string `json:"state"`
-				Result string `json:"result"`
-				Jobs   []struct {
-					Name  string `json:"name"`
-					JobID string `json:"job_id"`
-				} `json:"jobs"`
-			} `json:"blocks"`
-		}
-
-		if pplResp.StatusCode == 200 {
-			_ = json.Unmarshal(pplResp.Body, &pplData)
-		}
-
-		// Build status summary
-		type blockStatus struct {
-			Name   string `json:"name"`
-			State  string `json:"state"`
-			Result string `json:"result,omitempty"`
-		}
-
-		blocks := make([]blockStatus, 0)
-		for _, b := range pplData.Blocks {
-			blocks = append(blocks, blockStatus{
-				Name:   b.Name,
-				State:  b.State,
-				Result: b.Result,
-			})
-		}
-
-		status := map[string]any{
-			"project":     project,
-			"branch":      latest.BranchName,
-			"commit_sha":  latest.CommitSHA,
-			"workflow_id":  latest.WfID,
-			"pipeline_id":  latest.InitialPplID,
-			"pipeline": map[string]any{
-				"name":          pplData.Pipeline.Name,
-				"state":         pplData.Pipeline.State,
-				"result":        pplData.Pipeline.Result,
-				"result_reason": pplData.Pipeline.ResultReason,
-				"created_at":    pplData.Pipeline.CreatedAt,
-				"done_at":       pplData.Pipeline.DoneAt,
-			},
-			"blocks":           blocks,
-			"total_workflows":  len(workflows),
-		}
-
-		output.Result(status)
-		return nil
 	},
 }
 
-// detectProject tries to find the Semaphore project name from git remote.
-func detectProject() (string, error) {
+// fetchProjectStatus looks up the workflow for the given selector in one project
+// and, if found, returns its pipeline status summary. ok=false means the project
+// has no matching workflow (so it is not part of the answer).
+func fetchProjectStatus(c *client.Client, proj projectCandidate, branch, pr, wantSHA string) (map[string]any, bool, error) {
+	params := url.Values{}
+	params.Set("project_id", proj.ID)
+	switch {
+	case pr != "":
+		params.Set("label", pr)
+	case branch != "":
+		params.Set("branch_name", branch)
+	}
+
+	resp, err := c.ListWithParams("plumber-workflows", params)
+	if err != nil {
+		return nil, false, err
+	}
+	if resp.StatusCode != 200 {
+		return nil, false, fmt.Errorf("workflows: HTTP %d", resp.StatusCode)
+	}
+
+	var workflows []struct {
+		WfID         string `json:"wf_id"`
+		BranchName   string `json:"branch_name"`
+		CommitSHA    string `json:"commit_sha"`
+		InitialPplID string `json:"initial_ppl_id"`
+	}
+	if err := json.Unmarshal(resp.Body, &workflows); err != nil {
+		return nil, false, err
+	}
+	if len(workflows) == 0 {
+		return nil, false, nil
+	}
+
+	// Prefer the workflow for the exact HEAD commit; the API returns newest-first,
+	// so workflows[0] is the latest run on the branch as a fallback.
+	chosen := workflows[0]
+	matchedBy := "latest_on_branch"
+	if wantSHA != "" {
+		for _, w := range workflows {
+			if w.CommitSHA == wantSHA || strings.HasPrefix(w.CommitSHA, wantSHA) || strings.HasPrefix(wantSHA, w.CommitSHA) {
+				chosen = w
+				matchedBy = "commit_sha"
+				break
+			}
+		}
+	}
+
+	pplParams := url.Values{}
+	pplParams.Set("detailed", "true")
+	pplResp, err := c.ListWithParams("pipelines/"+chosen.InitialPplID, pplParams)
+	if err != nil {
+		return nil, false, err
+	}
+
+	var pplData struct {
+		Pipeline struct {
+			Name         string `json:"name"`
+			State        string `json:"state"`
+			Result       string `json:"result"`
+			ResultReason string `json:"result_reason"`
+			CreatedAt    string `json:"created_at"`
+			DoneAt       string `json:"done_at"`
+		} `json:"pipeline"`
+		Blocks []struct {
+			Name   string `json:"name"`
+			State  string `json:"state"`
+			Result string `json:"result"`
+		} `json:"blocks"`
+	}
+	if pplResp.StatusCode == 200 {
+		_ = json.Unmarshal(pplResp.Body, &pplData)
+	}
+
+	type blockStatus struct {
+		Name   string `json:"name"`
+		State  string `json:"state"`
+		Result string `json:"result,omitempty"`
+	}
+	blocks := make([]blockStatus, 0, len(pplData.Blocks))
+	for _, b := range pplData.Blocks {
+		blocks = append(blocks, blockStatus{Name: b.Name, State: b.State, Result: b.Result})
+	}
+
+	st := map[string]any{
+		"project":         proj.Name,
+		"branch":          chosen.BranchName,
+		"commit_sha":      chosen.CommitSHA,
+		"matched_by":      matchedBy,
+		"workflow_id":     chosen.WfID,
+		"pipeline_id":     chosen.InitialPplID,
+		"total_workflows": len(workflows),
+		"pipeline": map[string]any{
+			"name":          pplData.Pipeline.Name,
+			"state":         pplData.Pipeline.State,
+			"result":        pplData.Pipeline.Result,
+			"result_reason": pplData.Pipeline.ResultReason,
+			"created_at":    pplData.Pipeline.CreatedAt,
+			"done_at":       pplData.Pipeline.DoneAt,
+		},
+		"result_bucket": bucketForPipeline(pplData.Pipeline.State, pplData.Pipeline.Result),
+	}
+	return st, true, nil
+}
+
+// bucketForPipeline collapses Semaphore's state/result into one of
+// passed / failed / pending, for both display and exit-code mapping.
+func bucketForPipeline(state, result string) string {
+	if state != "" && state != "done" {
+		return "pending"
+	}
+	if result == "passed" {
+		return "passed"
+	}
+	if result == "" {
+		return "pending"
+	}
+	return "failed"
+}
+
+func exitCodeForBucket(bucket any) int {
+	switch bucket {
+	case "passed":
+		return exitPass
+	case "pending":
+		return exitPending
+	default:
+		return exitFail
+	}
+}
+
+type projectCandidate struct {
+	Name string
+	ID   string
+}
+
+// detectProjectCandidates returns every Semaphore project whose repository
+// matches the current git remote ("origin"). It returns an empty slice when
+// nothing matches. Owner/repo is the stronger signal; a bare repo-name match is
+// only used when no owner/repo match exists.
+func detectProjectCandidates() ([]projectCandidate, error) {
 	remoteURL, err := gitutil.RemoteURL("origin")
 	if err != nil {
-		return "", err
+		return nil, err
 	}
-
+	ownerRepo := gitutil.RepoOwnerAndName(remoteURL)
 	repoName := gitutil.RepoName(remoteURL)
-	if repoName == "" {
-		return "", fmt.Errorf("could not extract repo name from %q", remoteURL)
+	if ownerRepo == "" && repoName == "" {
+		return nil, fmt.Errorf("could not extract a repo name from remote %q", remoteURL)
 	}
 
-	// Try matching against Semaphore projects
 	c := client.New()
 	resp, err := c.List("projects")
 	if err != nil {
-		return "", err
+		return nil, err
 	}
 	if resp.StatusCode != 200 {
-		return repoName, nil // fallback to repo name
+		return nil, fmt.Errorf("projects list returned HTTP %d", resp.StatusCode)
 	}
 
 	var projects []struct {
 		Metadata struct {
 			Name string `json:"name"`
+			ID   string `json:"id"`
 		} `json:"metadata"`
 		Spec struct {
 			Repository struct {
@@ -202,26 +322,50 @@ func detectProject() (string, error) {
 		} `json:"spec"`
 	}
 	if err := json.Unmarshal(resp.Body, &projects); err != nil {
-		return repoName, nil
+		return nil, err
 	}
 
-	// Match by repo URL or repo name
-	ownerRepo := gitutil.RepoOwnerAndName(remoteURL)
+	var byOwnerRepo, byName []projectCandidate
 	for _, p := range projects {
-		pOwnerRepo := gitutil.RepoOwnerAndName(p.Spec.Repository.URL)
-		if pOwnerRepo == ownerRepo {
-			return p.Metadata.Name, nil
-		}
-		if p.Spec.Repository.Name == repoName {
-			return p.Metadata.Name, nil
+		cand := projectCandidate{Name: p.Metadata.Name, ID: p.Metadata.ID}
+		if ownerRepo != "" && gitutil.RepoOwnerAndName(p.Spec.Repository.URL) == ownerRepo {
+			byOwnerRepo = append(byOwnerRepo, cand)
+		} else if repoName != "" && p.Spec.Repository.Name == repoName {
+			byName = append(byName, cand)
 		}
 	}
+	if len(byOwnerRepo) > 0 {
+		return byOwnerRepo, nil
+	}
+	return byName, nil
+}
 
-	return repoName, nil
+// detectProject returns the single Semaphore project for the current git remote.
+// It errors when the remote matches no project, or matches several (caller must
+// then pass --project) — it never guesses one of multiple matches.
+func detectProject() (string, error) {
+	cands, err := detectProjectCandidates()
+	if err != nil {
+		return "", err
+	}
+	switch len(cands) {
+	case 0:
+		return "", fmt.Errorf("could not detect a Semaphore project from git remote 'origin'")
+	case 1:
+		return cands[0].Name, nil
+	default:
+		names := make([]string, len(cands))
+		for i, c := range cands {
+			names[i] = c.Name
+		}
+		return "", fmt.Errorf("git remote 'origin' maps to %d Semaphore projects (%s)", len(cands), strings.Join(names, ", "))
+	}
 }
 
 func init() {
-	statusCmd.Flags().StringVar(&statusProjectFlag, "project", "", "project name (auto-detected from git remote if omitted)")
+	statusCmd.Flags().StringVar(&statusProjectFlag, "project", "", "project name or ID (auto-detected from git remote if omitted)")
 	statusCmd.Flags().StringVar(&statusBranchFlag, "branch", "", "branch name (auto-detected from HEAD if omitted)")
+	statusCmd.Flags().StringVar(&statusPRFlag, "pr", "", "pull-request number (overrides --branch; matches the PR's workflow)")
+	statusCmd.Flags().BoolVar(&statusExitCodeFlag, "exit-code", false, "exit 0=pass 8=pending 1=fail 2=ambiguous 3=none (for poll loops)")
 	rootCmd.AddCommand(statusCmd)
 }

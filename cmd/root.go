@@ -66,7 +66,16 @@ func Execute() {
 	// Wrap all commands' Args validators to skip when --examples is set
 	patchArgsForExamples(rootCmd)
 
-	if err := rootCmd.Execute(); err != nil {
+	err := rootCmd.Execute()
+
+	// `status --exit-code` requests a poll-friendly process exit code. This is
+	// the only place os.Exit may run for it — the in-process MCP server calls
+	// rootCmd.Execute() directly (cmd/mcp.go) and never reaches here.
+	if statusExitCode != 0 {
+		os.Exit(statusExitCode)
+	}
+
+	if err != nil {
 		if err == errExamplesShown {
 			return
 		}
