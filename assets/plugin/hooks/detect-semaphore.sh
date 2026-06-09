@@ -11,7 +11,7 @@ set -uo pipefail
 root="$(git rev-parse --show-toplevel 2>/dev/null || true)"
 [ -n "$root" ] && [ -d "$root/.semaphore" ] || exit 0
 
-base="This repository is built on Semaphore CI (.semaphore/ present). For any CI, pipeline, test-result, deploy, or build-status question, use sem-ai (the semaphore-ci skill) — do not assume GitHub Actions. Prefer 'sem-ai status' (it auto-detects the project + branch from git) over 'gh pr checks' for the is-it-green check: it reads the same Semaphore status and keeps the failure drill ('sem-ai diagnose <workflow-id>') one tool away. After pushing, follow the run with the watch-after-push skill."
+base="This repository runs its CI on Semaphore (.semaphore/ present), connected to its git host (GitHub, GitLab, or Bitbucket). For any CI, pipeline, test-result, deploy, or build-status question, prefer sem-ai (the semaphore-ci skill): 'sem-ai status' auto-detects the project + branch from git and is the is-it-green check. The git host's own checks (e.g. 'gh pr checks') mirror the same Semaphore result and are a fine fallback when sem-ai isn't connected — sem-ai is preferred because it keeps the failure drill ('sem-ai diagnose <workflow-id>') one tool away. After pushing, follow the run with the watch-after-push skill."
 
 # Live current-branch CI state — bounded so it can never stall session start.
 # `sem-ai status` auto-detects project + branch and pins the current HEAD commit.

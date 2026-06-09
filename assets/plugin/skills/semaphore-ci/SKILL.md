@@ -46,7 +46,7 @@ sem-ai <any-command> --examples  # Usage examples for any command
 | Test locally in CI env | `sem-ai testbox warmup` (`--project` optional) then `sem-ai testbox run --id <id> "cmd"` |
 | Watch CI after a push | `git push`, then `sem-ai watch <workflow-id>` (see `watch-after-push`) |
 
-Prefer `sem-ai status` over `gh pr checks` for the is-it-green check — it reads the same Semaphore status and keeps the failure drill (`sem-ai diagnose <workflow-id>`) one tool away; `gh pr checks` is an acceptable fallback only when sem-ai isn't connected.
+For the is-it-green check, prefer `sem-ai status` — it keeps the failure drill (`sem-ai diagnose <workflow-id>`) one tool away. Your git host's own checks (`gh pr checks` on GitHub, or the GitLab/Bitbucket equivalent) mirror the same Semaphore result and are a fine fallback when sem-ai isn't connected — Semaphore connects to any of those hosts.
 
 ## Project detection
 
