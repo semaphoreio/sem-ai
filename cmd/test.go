@@ -45,6 +45,21 @@ Returns structured test data: pass/fail counts, individual failures with file/li
 			return err
 		}
 
+		// The parser captures every test (needed for flaky detection across
+		// runs); `test report` focuses on failures, so trim passes here.
+		for _, r := range reports {
+			if r.Report == nil {
+				continue
+			}
+			failures := r.Report.Tests[:0]
+			for _, t := range r.Report.Tests {
+				if t.Status != "passed" {
+					failures = append(failures, t)
+				}
+			}
+			r.Report.Tests = failures
+		}
+
 		output.Result(reports)
 		return nil
 	},
