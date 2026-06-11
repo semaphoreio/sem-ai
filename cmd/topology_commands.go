@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/url"
+	"os"
+	"path/filepath"
 
 	"github.com/semaphoreio/sem-ai/pkg/client"
 	"github.com/semaphoreio/sem-ai/pkg/config"
@@ -315,6 +317,7 @@ func fetchTopology(pipelineID string) (map[string]interface{}, error) {
 	// Try fetching YAML from workflow artifacts
 	wfID := pplData.Pipeline.WfID
 	var yamlDeps map[string][]string // block name → dependencies
+	yamlSource := "none"
 
 	if wfID != "" {
 		artParams := url.Values{}
@@ -330,17 +333,26 @@ func fetchTopology(pipelineID string) (map[string]interface{}, error) {
 				yamlResp, err := c.GetExternal(artData.URL)
 				if err == nil && yamlResp.StatusCode == 200 {
 					yamlDeps = parseYAMLDependencies(yamlResp.Body)
+					yamlSource = "artifact"
 				}
 			}
 		}
 	}
 
-	// 3. If still no deps, try to infer from block ordering (basic heuristic):
-	//    blocks without explicit deps depend on nothing; otherwise use YAML data
+	// 3. Fallback: the pipeline definition isn't a job artifact, so the fetch
+	//    above usually misses. When run from the repo (the common case), read
+	//    the pipeline YAML straight off disk — that's where the block
+	//    dependencies actually live.
 	if yamlDeps == nil {
-		// Last resort: infer from execution order. Blocks that are "waiting"
-		// while others run are likely dependent. But this is imprecise.
-		// Return blocks without dependency info.
+		if deps := localPipelineDeps(workingDir, yamlFile); deps != nil {
+			yamlDeps = deps
+			yamlSource = "local"
+		}
+	}
+
+	if yamlDeps == nil {
+		// No dependency source available — return blocks without edges
+		// (critical path / blast radius degrade to per-block, not a chain).
 		yamlDeps = map[string][]string{}
 	}
 
@@ -363,7 +375,7 @@ func fetchTopology(pipelineID string) (map[string]interface{}, error) {
 		"pipeline_id": pipelineID,
 		"blocks":      blocks,
 		"total":       len(blocks),
-		"source":      "v1alpha+yaml",
+		"source":      "v1alpha+" + yamlSource,
 	}
 
 	return result, nil
@@ -395,6 +407,17 @@ func parseYAMLDependencies(yamlContent []byte) map[string][]string {
 		}
 	}
 	return deps
+}
+
+// localPipelineDeps reads the pipeline YAML from the local working tree
+// (e.g. .semaphore/semaphore.yml) and extracts block dependencies. Returns
+// nil if the file is missing or has no parseable blocks.
+func localPipelineDeps(workingDir, yamlFile string) map[string][]string {
+	data, err := os.ReadFile(filepath.Join(workingDir, yamlFile))
+	if err != nil {
+		return nil
+	}
+	return parseYAMLDependencies(data)
 }
 
 // topoBlocksFromMap extracts []blockTopology from the topology result map.

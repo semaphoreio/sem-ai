@@ -1,8 +1,63 @@
 package cmd
 
 import (
+	"os"
+	"path/filepath"
 	"testing"
 )
+
+// Regression: critical-path/topology returned every block with empty
+// dependencies because fetchTopology only tried to fetch the pipeline YAML as
+// a workflow artifact (which doesn't exist). It must also read the pipeline
+// YAML from the local working tree, where the dependencies actually live.
+func TestLocalPipelineDeps(t *testing.T) {
+	dir := t.TempDir()
+	semDir := filepath.Join(dir, ".semaphore")
+	if err := os.MkdirAll(semDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	yaml := `version: v1.0
+blocks:
+  - name: Build
+    dependencies: []
+  - name: Test
+    dependencies: ["Build"]
+  - name: Deploy
+    dependencies: ["Test"]
+`
+	if err := os.WriteFile(filepath.Join(semDir, "semaphore.yml"), []byte(yaml), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	deps := localPipelineDeps(semDir, "semaphore.yml")
+	if deps == nil {
+		t.Fatal("expected deps from local YAML, got nil")
+	}
+	if len(deps["Build"]) != 0 {
+		t.Errorf("Build deps = %v, want []", deps["Build"])
+	}
+	if len(deps["Test"]) != 1 || deps["Test"][0] != "Build" {
+		t.Errorf("Test deps = %v, want [Build]", deps["Test"])
+	}
+	if len(deps["Deploy"]) != 1 || deps["Deploy"][0] != "Test" {
+		t.Errorf("Deploy deps = %v, want [Test]", deps["Deploy"])
+	}
+
+	// The critical path through this chain is the full Build->Test->Deploy.
+	blocks := []blockTopology{
+		{Name: "Build", Dependencies: deps["Build"]},
+		{Name: "Test", Dependencies: deps["Test"]},
+		{Name: "Deploy", Dependencies: deps["Deploy"]},
+	}
+	if got := computeCriticalPath(blocks); len(got) != 3 {
+		t.Errorf("critical path = %v, want 3 blocks (Build->Test->Deploy)", got)
+	}
+
+	// Missing file → nil (graceful).
+	if localPipelineDeps(filepath.Join(dir, "nope"), "semaphore.yml") != nil {
+		t.Error("expected nil for missing YAML")
+	}
+}
 
 func TestParseYAMLDependenciesBasic(t *testing.T) {
 	deps := parseYAMLDependencies([]byte(`
