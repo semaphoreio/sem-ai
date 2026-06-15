@@ -50,6 +50,11 @@ func runMCPServer() error {
 	// Silence log output — it would corrupt the MCP JSON-RPC stream on stdout
 	log.SetOutput(io.Discard)
 
+	// Mark this process as the MCP surface for the rest of its lifetime. Every
+	// tool call re-enters the cobra tree, so PersistentPreRunE reads this when
+	// stamping the x-client-source header.
+	invocationSource = "semai-mcp"
+
 	s := server.NewMCPServer(
 		"sem-ai",
 		Version,

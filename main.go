@@ -21,6 +21,7 @@ func main() {
 	cmd.Date = date
 	ua := fmt.Sprintf("sem-ai/%s (%s; %s)", version, runtime.GOOS, runtime.GOARCH)
 	client.UserAgent = ua
+	client.Version = version
 	versioncheck.UserAgent = ua
 	cmd.Execute()
 }

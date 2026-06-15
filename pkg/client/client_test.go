@@ -131,6 +131,82 @@ func TestOrgIDHeaderNotSentWhenEmpty(t *testing.T) {
 	}
 }
 
+// ---- Client identification headers ---------------------------------------------
+
+func restoreClientMeta(s, c, v string) {
+	Source, Command, Version = s, c, v
+}
+
+func TestClientHeadersSent(t *testing.T) {
+	var gotSource, gotCommand, gotVersion string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotSource = r.Header.Get("x-client-source")
+		gotCommand = r.Header.Get("x-client-command")
+		gotVersion = r.Header.Get("x-client-version")
+		w.WriteHeader(200)
+		w.Write([]byte(`{}`))
+	}))
+	defer srv.Close()
+
+	defer restoreClientMeta(Source, Command, Version)
+	Source, Command, Version = "semai-mcp", "pipeline_list", "1.4.0"
+
+	host := strings.TrimPrefix(srv.URL, "http://")
+	c := newTestClient(host, "tok")
+	if _, err := c.Get("pipelines", "p1"); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if gotSource != "semai-mcp" || gotCommand != "pipeline_list" || gotVersion != "1.4.0" {
+		t.Errorf("client headers = (%q, %q, %q), want (semai-mcp, pipeline_list, 1.4.0)",
+			gotSource, gotCommand, gotVersion)
+	}
+}
+
+func TestClientCommandHeaderOmittedWhenEmpty(t *testing.T) {
+	var gotCommand string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotCommand = r.Header.Get("x-client-command")
+		w.WriteHeader(200)
+		w.Write([]byte(`{}`))
+	}))
+	defer srv.Close()
+
+	defer restoreClientMeta(Source, Command, Version)
+	Source, Command, Version = "semai-cli", "", "dev"
+
+	host := strings.TrimPrefix(srv.URL, "http://")
+	c := newTestClient(host, "tok")
+	if _, err := c.Get("pipelines", "p1"); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if gotCommand != "" {
+		t.Errorf("x-client-command should be omitted when empty, got %q", gotCommand)
+	}
+}
+
+func TestTraceParentSent(t *testing.T) {
+	var gotTP string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotTP = r.Header.Get("traceparent")
+		w.WriteHeader(200)
+		w.Write([]byte(`{}`))
+	}))
+	defer srv.Close()
+
+	defer func() { TraceParent = "" }()
+	NewTraceParent()
+
+	host := strings.TrimPrefix(srv.URL, "http://")
+	c := newTestClient(host, "tok")
+	if _, err := c.Get("pipelines", "p1"); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	// W3C traceparent: 00-<32hex>-<16hex>-01, total length 55.
+	if len(gotTP) != 55 || !strings.HasPrefix(gotTP, "00-") || !strings.HasSuffix(gotTP, "-01") {
+		t.Errorf("traceparent = %q, want W3C 00-<32hex>-<16hex>-01", gotTP)
+	}
+}
+
 // ---- GetExternal does NOT send auth headers ------------------------------------
 
 func TestGetExternalNoAuthHeader(t *testing.T) {
