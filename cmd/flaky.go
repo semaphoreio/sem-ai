@@ -122,7 +122,10 @@ func flakyTrendsPath(projectID, metric string) (string, error) {
 }
 
 // emitJSON decodes a 200 body and prints it; otherwise emits a structured error.
-func emitJSON(resp *client.Response) error {
+func emitJSON(resp *client.Response) error { return emitJSONTransform(resp, nil) }
+
+// emitJSONTransform decodes a 200 body, applies an optional transform, prints it.
+func emitJSONTransform(resp *client.Response, transform func(any) any) error {
 	if resp.StatusCode != 200 {
 		output.Error("api_error", fmt.Sprintf("HTTP %d: %s", resp.StatusCode, string(resp.Body)), resp.StatusCode)
 		return fmt.Errorf("API returned %d", resp.StatusCode)
@@ -132,8 +135,28 @@ func emitJSON(resp *client.Response) error {
 		output.Error("parse_error", fmt.Sprintf("failed to decode response: %v", err), 1)
 		return err
 	}
+	if transform != nil {
+		result = transform(result)
+	}
 	output.Result(result)
 	return nil
+}
+
+// stripDisruptionHistory removes the heavy per-test disruption_history field
+// from each record of a flaky-list array, keeping `flaky list` output compact.
+// The full history is available via `flaky show <test_id>`. Non-array inputs
+// (e.g. an error object) pass through unchanged.
+func stripDisruptionHistory(v any) any {
+	arr, ok := v.([]any)
+	if !ok {
+		return v
+	}
+	for _, el := range arr {
+		if m, ok := el.(map[string]any); ok {
+			delete(m, "disruption_history")
+		}
+	}
+	return v
 }
 
 // ---- flaky list ----
@@ -145,6 +168,7 @@ var (
 	flakyListSortF    string
 	flakyListSortD    string
 	flakyListFilters  flakyFilters
+	flakyListFull     bool
 )
 
 var flakyListCmd = &cobra.Command{
@@ -170,7 +194,10 @@ var flakyListCmd = &cobra.Command{
 			output.Error("api_error", err.Error(), 1)
 			return err
 		}
-		return emitJSON(resp)
+		if flakyListFull {
+			return emitJSON(resp)
+		}
+		return emitJSONTransform(resp, stripDisruptionHistory)
 	},
 }
 
@@ -284,6 +311,7 @@ func init() {
 	flakyListCmd.Flags().IntVar(&flakyListPageSize, "page-size", 20, "results per page")
 	flakyListCmd.Flags().StringVar(&flakyListSortF, "sort-field", "", "sort field (e.g. total_disruptions_count, pass_rate)")
 	flakyListCmd.Flags().StringVar(&flakyListSortD, "sort-dir", "", "sort direction (asc|desc)")
+	flakyListCmd.Flags().BoolVar(&flakyListFull, "full", false, "include full disruption_history per test (default: omit for compact output)")
 	addFilterFlags(flakyListCmd, &flakyListFilters)
 
 	flakyShowCmd.Flags().StringVar(&flakyShowProject, "project", "", "project name or ID (required)")
