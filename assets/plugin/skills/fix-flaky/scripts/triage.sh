@@ -59,22 +59,34 @@ case "$CMD" in
     RUN_ID="$(jq -r '.latest_disruption_run_id // empty' <<<"$REC")"
 
     echo "### test"
-    jq -r '"  name: \(.test_name)\n  file: \(.test_file)\n  pass_rate: \(.pass_rate)%   disruptions: \(.disruptions_count)   p95: \(.p95_duration // "?")"' <<<"$REC"
+    jq -r '"  name: \(.test_name)\n  file: \(.test_file)\n  pass_rate: \(.pass_rate)%   disruptions: \(.disruptions_count)"' <<<"$REC"
+
+    echo "### history (per-context pass_rate + p95 — the timeout-class heuristic)"
+    # p95 lives in `flaky show <test_id>`, NOT the list record. Dump every p95/pass_rate scalar robustly.
+    sem-ai flaky show "$TEST_ID" --project "$PROJECT" 2>/dev/null \
+      | jq -r '[paths(scalars) as $p | select(($p[-1]|type)=="string" and ($p[-1]|test("p95|pass_rate|disrupt";"i"))) | "  \($p|join(".")) = \(getpath($p))"] | (if length>0 then .[] else "  (no per-context detail)" end)' \
+      || echo "  (flaky show returned nothing — check: sem-ai flaky show $TEST_ID --project $PROJECT)"
 
     echo "### on-disk path (sem-ai paths are app-relative; resolving against $REPO)"
-    HITS="$(find "$REPO" -path "*/$TEST_FILE_NOLINE" 2>/dev/null | grep -v '/.git/' || true)"
-    [[ -z "$HITS" ]] && HITS="$(find "$REPO" -path "*$TEST_FILE_NOLINE" 2>/dev/null | grep -v '/.git/' || true)"
-    if [[ -n "$HITS" ]]; then echo "$HITS" | sed 's/^/  /'; else echo "  (not found — try a looser pattern on the basename)"; fi
-
-    echo "### actual failure (from last disruption run $RUN_ID)"
-    if [[ -n "$RUN_ID" ]]; then
-      # Best-effort bridge: the run id may be a pipeline or workflow id. Try the
-      # test-intelligence report; if that surface doesn't match, fall back to diagnose.
-      sem-ai test report --pipeline "$RUN_ID" 2>/dev/null \
-        || sem-ai diagnose "$RUN_ID" 2>/dev/null \
-        || echo "  (could not auto-fetch; run: sem-ai test report --pipeline $RUN_ID  /  sem-ai job log <job-id>)"
+    if git -C "$REPO" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+      HITS="$(git -C "$REPO" ls-files | grep -F "/$TEST_FILE_NOLINE" || git -C "$REPO" ls-files | grep -F "$TEST_FILE_NOLINE" || true)"
+      [[ -n "$HITS" ]] && HITS="$(echo "$HITS" | sed "s#^#$REPO/#")"
     else
-      echo "  (no latest_disruption_run_id on this record; use: sem-ai flaky disruptions --project $PROJECT --file '$TEST_FILE')"
+      HITS="$(find "$REPO" -path "*/$TEST_FILE_NOLINE" 2>/dev/null | grep -v '/.git/' || true)"
+    fi
+    if [[ -n "$HITS" ]]; then echo "$HITS" | sed 's/^/  /'; else echo "  (not found — try the basename)"; fi
+
+    echo "### actual failure (best-effort — usually NOT retrievable here, see notes)"
+    if [[ -n "$RUN_ID" ]]; then
+      OUT="$(sem-ai test report --pipeline "$RUN_ID" 2>&1)"; RC=$?
+      if [[ $RC -eq 0 && -n "$OUT" && "$OUT" != *'"error"'* ]]; then echo "$OUT"; else
+        echo "  could not fetch failure for run $RUN_ID:"
+        echo "$OUT" | sed 's/^/    /' | head -4
+        echo "  NOTE: latest_disruption_run_id is a WORKFLOW id; test report wants a PIPELINE id."
+        echo "        test report also doesn't parse ExUnit (.exs). For ExUnit/old flakes, diagnose from source + the failure-name playbook."
+      fi
+    else
+      echo "  (no latest_disruption_run_id; try: sem-ai flaky disruptions $TEST_ID --project $PROJECT)"
     fi
     ;;
   *) usage;;

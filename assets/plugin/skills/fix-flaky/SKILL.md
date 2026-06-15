@@ -42,22 +42,27 @@ Pick a test you can confidently root-cause — recurring across many commits
 (not one bad run), with a `test_file` you can read.
 
 ### 2. Get the ACTUAL failure (the step everyone skips)
-The disruption data says *that* it failed, never *how*. Bridge to the real
-assertion/stacktrace before theorizing:
+The disruption data says *that* it failed, never *how*. Get the per-context
+history and (when retrievable) the real failure:
 ```bash
-sem-ai flaky show --project <name> --file <test_file>   # or by id; gives latest_disruption_run_id + per-context pass_rate/p95
-sem-ai test report --pipeline <run-id>                  # test-intelligence: parsed failure (test name + file:line + message)
+sem-ai flaky show <test_id> --project <name>   # POSITIONAL test_id (NOT --file). Per-context pass_rate, p95, latest_disruption_run_id
+sem-ai flaky disruptions <test_id> --project <name>   # individual runs; ignore rows with null timestamp
 ```
-Use the `latest_disruption_run_id` (or a run id from `sem-ai flaky disruptions`)
-to pull the failing run's test detail via the **test-intelligence** skill. The
-failure message usually names the flake class outright (timeout, stale element,
-comparison, ordering), which beats guessing from source.
+Note: `flaky show`/`disruptions` take the `test_id` **positionally** — `--file`
+returns empty *silently* (exit 0), which reads as "no data." Get the `test_id`
+from the `list` jq above.
 
-Reality check: for OLD disruptions the run's artifacts/logs may be expired
-(`test report` returns HTTP 404). If so, walk `sem-ai flaky disruptions` for the
-most RECENT run id and try that; if every available run is past retention,
-accept that you'll diagnose from source + the failure *name* pattern (the
-playbook below maps names → classes). Don't burn time fighting a 404.
+Bridging to the actual failure text is unreliable in this repo, by design —
+budget little time for it:
+- `latest_disruption_run_id` is a **workflow** id; `sem-ai test report` wants a
+  **pipeline** id, so it 404s unless you resolve workflow→pipeline first.
+- `sem-ai test report` parses Go/pytest/rspec/jest — **not ExUnit**, which is
+  most of this monorepo. So even a live run yields nothing for `.exs` tests.
+- Old disruptions are past artifact retention (404) regardless.
+
+So for ExUnit/old flakes, expect to diagnose from **source + the failure-name
+pattern** (the playbook below maps names → classes). That's not a failure of
+method — the test name + history + code are usually enough.
 
 ### 3. Locate in the code (paths are app-relative)
 `test_file` from sem-ai is relative to the *app* root, not the repo root. In a
@@ -79,10 +84,15 @@ usually live in the seam between them.
 | depends on leftover state between tests | shared/global state | isolate setup/teardown, unique fixtures |
 | calls a real external service / network | external dependency | stub/mock, or mark + isolate |
 
-`flaky show`'s **p95 vs any in-test timeout** is the single best heuristic for
-the timeout class — compare them explicitly. When unsure, prefer a contained
-fix and lean on existing repo helpers (e.g. retry/assert-eventually wrappers,
-shared wait utilities) over inventing new machinery.
+For the timeout class, compare the in-test wait/sleep budget to the failure
+**tail, not p95** — a ~95%-pass flake has p95 *under* the budget by definition;
+it dies in the p99/max. The sharper tell: count how many times the test funnels
+through a shared wait helper — the real ceiling is **fan-out × per-wait budget**
+(e.g. a test with 3 sequential async waits on a 1s helper has a ~3s effective
+budget against a tail that exceeds it). Also scan sibling tests in the same file:
+if flakiness tracks the number of waits/interactions, that gradient is your proof.
+When unsure, prefer a contained fix and lean on existing repo helpers
+(retry/assert-eventually wrappers, shared wait utilities) over new machinery.
 
 ### 5. Fix or quarantine
 Implement the smallest change that removes the nondeterminism. If a real fix is
@@ -94,6 +104,10 @@ the repo does.
 A flake needs repeated runs to confirm. Use the **testbox** skill to run the
 single test many times against your change, or trigger a targeted rerun, and
 check the pass rate moved. Don't declare it fixed off a single pass.
+
+If you can't verify (no local toolchain; can't push; testbox unavailable),
+say so and mark the fix **provisional** — a reasoned by-construction fix is fine
+to hand over, but don't claim it's confirmed.
 
 ## Composes with
 - **test-intelligence** — step 2's failure detail (`sem-ai test report|summary`).
