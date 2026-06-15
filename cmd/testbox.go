@@ -22,9 +22,9 @@ machine type, secrets, and cache — then syncs your local code and executes com
 }
 
 var (
-	testboxWarmupProjectFlag     string
-	testboxWarmupMachineFlag     string
-	testboxWarmupOSImageFlag     string
+	testboxWarmupProjectFlag  string
+	testboxWarmupMachineFlag  string
+	testboxWarmupOSImageFlag  string
 	testboxWarmupDurationFlag time.Duration
 )
 
@@ -95,6 +95,12 @@ var testboxWarmupCmd = &cobra.Command{
 
 		jobID := job.Metadata.ID
 
+		if probe, perr := c.Get("jobs", jobID+"/debug_ssh_key"); perr == nil && probe.StatusCode == 403 {
+			c.PostAction("jobs", jobID, "stop", nil)
+			output.Error("testbox_error", debugDisabledMsg(project, probe.Body), 1)
+			return fmt.Errorf("debug sessions disabled for project %q", project)
+		}
+
 		// Poll until RUNNING
 		fmt.Fprintf(os.Stderr, "Warming up testbox for %s ", project)
 		for i := 0; i < 120; i++ {
@@ -126,18 +132,37 @@ var testboxWarmupCmd = &cobra.Command{
 			return fmt.Errorf("warmup timeout")
 		}
 
-		// Get SSH key
 		sshResp, err := c.Get("jobs", jobID+"/debug_ssh_key")
 		if err != nil {
+			c.PostAction("jobs", jobID, "stop", nil)
 			output.Error("api_error", err.Error(), 1)
 			return err
+		}
+		if sshResp.StatusCode != 200 {
+			c.PostAction("jobs", jobID, "stop", nil)
+			if sshResp.StatusCode == 403 {
+				output.Error("testbox_error", debugDisabledMsg(project, sshResp.Body), 1)
+			} else {
+				output.Error("testbox_error", fmt.Sprintf("could not get SSH debug key (HTTP %d): %s", sshResp.StatusCode, string(sshResp.Body)), 1)
+			}
+			return fmt.Errorf("SSH key unavailable")
 		}
 
 		var sshKey struct {
 			Key string `json:"key"`
 		}
-		if sshResp.StatusCode == 200 {
-			json.Unmarshal(sshResp.Body, &sshKey)
+		json.Unmarshal(sshResp.Body, &sshKey)
+		if sshKey.Key == "" {
+			c.PostAction("jobs", jobID, "stop", nil)
+			output.Error("testbox_error", "SSH debug key was empty — debug sessions may be disabled for this project", 1)
+			return fmt.Errorf("empty SSH key")
+		}
+
+		keyFile := fmt.Sprintf("/tmp/.sem-testbox-%s.key", jobID)
+		if err := os.WriteFile(keyFile, []byte(sshKey.Key), 0600); err != nil {
+			c.PostAction("jobs", jobID, "stop", nil)
+			output.Error("testbox_error", fmt.Sprintf("could not write SSH key file: %s", err), 1)
+			return err
 		}
 
 		sshPort := findSSHPort(job)
@@ -153,18 +178,13 @@ var testboxWarmupCmd = &cobra.Command{
 				"port": sshPort,
 				"user": "semaphore",
 			},
-			"expires_in": testboxWarmupDurationFlag.String(),
+			"expires_in":   testboxWarmupDurationFlag.String(),
+			"ssh_key_file": keyFile,
 			"usage": map[string]string{
 				"run":  fmt.Sprintf("sem-ai testbox run --id %s \"your-command\"", jobID),
 				"ssh":  fmt.Sprintf("sem-ai testbox ssh --id %s", jobID),
 				"stop": fmt.Sprintf("sem-ai testbox stop --id %s", jobID),
 			},
-		}
-
-		if sshKey.Key != "" {
-			keyFile := fmt.Sprintf("/tmp/.sem-testbox-%s.key", jobID)
-			os.WriteFile(keyFile, []byte(sshKey.Key), 0600)
-			result["ssh_key_file"] = keyFile
 		}
 
 		output.Result(result)
@@ -186,6 +206,18 @@ type jobStatus struct {
 			} `json:"ports"`
 		} `json:"agent"`
 	} `json:"status"`
+}
+
+func debugDisabledMsg(project string, body []byte) string {
+	msg := fmt.Sprintf(
+		"debug/SSH sessions are disabled for project %q — testbox needs them.\n"+
+			"Enable \"Collaborators can start empty debug sessions\" under the project's "+
+			"Settings → Permissions, or ask an organization admin to enable it.",
+		project)
+	if len(body) > 0 {
+		msg += fmt.Sprintf("\nServer response: %s", string(body))
+	}
+	return msg
 }
 
 func findSSHPort(job jobStatus) int {
