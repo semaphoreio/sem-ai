@@ -14,9 +14,11 @@ because the flaky data alone (pass rate, disruption count) doesn't tell you
 
 ## Fast path
 
+`triage.sh` is bundled in this skill's dir — invoke it by its full path (the
+skill's `scripts/triage.sh`), not a repo-relative path:
 ```bash
-scripts/triage.sh list --project <name>            # ranked, compact, noise filtered
-scripts/triage.sh inspect --project <name> --test-id <id> --repo <repo-checkout>
+<skill-dir>/scripts/triage.sh list --project <name>            # ranked, compact, noise filtered
+<skill-dir>/scripts/triage.sh inspect --project <name> --test-id <id> --repo <repo-checkout>
 ```
 `inspect` does the three mechanical things every triage needs: pulls the test's
 history, resolves its `test_file` to the real on-disk path (monorepo-aware), and
@@ -84,15 +86,17 @@ usually live in the seam between them.
 | depends on leftover state between tests | shared/global state | isolate setup/teardown, unique fixtures |
 | calls a real external service / network | external dependency | stub/mock, or mark + isolate |
 
-For the timeout class, compare the in-test wait/sleep budget to the failure
-**tail, not p95** — a ~95%-pass flake has p95 *under* the budget by definition;
-it dies in the p99/max. The sharper tell: count how many times the test funnels
-through a shared wait helper — the real ceiling is **fan-out × per-wait budget**
-(e.g. a test with 3 sequential async waits on a 1s helper has a ~3s effective
-budget against a tail that exceeds it). Also scan sibling tests in the same file:
-if flakiness tracks the number of waits/interactions, that gradient is your proof.
-When unsure, prefer a contained fix and lean on existing repo helpers
-(retry/assert-eventually wrappers, shared wait utilities) over new machinery.
+p95 is the heuristic **only for the timeout row** — for clock-tie, stale-element,
+and ordering classes it's a red herring; ignore it. For the timeout class,
+compare the in-test wait/sleep budget to the failure **tail, not p95** — a
+~95%-pass flake has p95 *under* the budget by definition; it dies in the p99/max.
+The sharper tell: count how many times the test funnels through a shared wait
+helper — the real ceiling is **fan-out × per-wait budget**. Two high-value moves:
+- `grep` for other callers of that wait helper and **diff their budgets** — a
+  non-flaky sibling is both your proof and your fix template (copy its budget).
+- Before writing any retry/wait machinery, `grep` the repo for an existing helper
+  (`retry_on_stale`, `assert_eventually`, a shared `Wait` util) and **reuse it** —
+  the fix is usually wiring the racing call through a helper the repo already has.
 
 ### 5. Fix or quarantine
 Implement the smallest change that removes the nondeterminism. If a real fix is

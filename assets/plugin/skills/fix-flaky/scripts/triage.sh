@@ -78,7 +78,9 @@ case "$CMD" in
 
     echo "### actual failure (best-effort — usually NOT retrievable here, see notes)"
     if [[ -n "$RUN_ID" ]]; then
-      OUT="$(sem-ai test report --pipeline "$RUN_ID" 2>&1)"; RC=$?
+      # NB: `if cmd` (not OUT=$(cmd);RC=$?) so a non-zero test report — the NORMAL
+      # case here — doesn't trip set -e and kill the script before the NOTE prints.
+      if OUT="$(sem-ai test report --pipeline "$RUN_ID" 2>&1)"; then RC=0; else RC=$?; fi
       if [[ $RC -eq 0 && -n "$OUT" && "$OUT" != *'"error"'* ]]; then echo "$OUT"; else
         echo "  could not fetch failure for run $RUN_ID:"
         echo "$OUT" | sed 's/^/    /' | head -4
