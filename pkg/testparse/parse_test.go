@@ -651,15 +651,51 @@ func TestParseJUnitJSONSemaphoreFormat(t *testing.T) {
 		t.Errorf("Skipped = %d, want 1", got.Skipped)
 	}
 
-	// Should only include non-passed tests
+	// Every test is captured with its state (passed and failed alike) —
+	// flaky detection needs to see a test both pass and fail across runs.
+	if len(got.Tests) != 2 {
+		t.Fatalf("expected 2 test details (passed + failed), got %d", len(got.Tests))
+	}
+	byName := map[string]TestResult{}
+	for _, tr := range got.Tests {
+		byName[tr.Name] = tr
+	}
+	if byName["TestA"].Status != "passed" {
+		t.Errorf("TestA status = %q, want passed", byName["TestA"].Status)
+	}
+	if byName["TestB"].Status != "failed" {
+		t.Errorf("TestB status = %q, want failed", byName["TestB"].Status)
+	}
+	if byName["TestB"].Message != "expected 1, got 2" {
+		t.Errorf("TestB message = %q", byName["TestB"].Message)
+	}
+}
+
+// Regression: the Semaphore test-results parser must report a test's passed
+// state, not just its failures. Dropping passes broke `test flaky`, which
+// flags a test only when it sees it both pass and fail across runs.
+func TestParseJUnitJSONCapturesPassedTests(t *testing.T) {
+	data := []byte(`{
+		"testResults": [{
+			"name": "unit",
+			"framework": "go",
+			"summary": {"total": 1, "passed": 1, "failed": 0, "skipped": 0, "error": 0},
+			"suites": [{
+				"name": "MySuite",
+				"tests": [{"name": "TestFlaky", "state": "passed"}]
+			}]
+		}]
+	}`)
+
+	got := ParseJUnitJSON(data)
+	if got == nil {
+		t.Fatal("expected non-nil result")
+	}
 	if len(got.Tests) != 1 {
-		t.Fatalf("expected 1 failed test detail, got %d", len(got.Tests))
+		t.Fatalf("expected the passed test to be captured, got %d tests", len(got.Tests))
 	}
-	if got.Tests[0].Name != "TestB" {
-		t.Errorf("Test name = %q, want TestB", got.Tests[0].Name)
-	}
-	if got.Tests[0].Message != "expected 1, got 2" {
-		t.Errorf("Test message = %q", got.Tests[0].Message)
+	if got.Tests[0].Name != "TestFlaky" || got.Tests[0].Status != "passed" {
+		t.Errorf("got %q/%q, want TestFlaky/passed", got.Tests[0].Name, got.Tests[0].Status)
 	}
 }
 

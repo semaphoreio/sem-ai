@@ -342,18 +342,19 @@ func parseSemaphoreTestResults(data []byte) *TestReport {
 
 		for _, suite := range tr.Suites {
 			for _, t := range suite.Tests {
-				if t.State != "passed" {
-					tr := TestResult{
-						Name:    t.Name,
-						Package: suite.Name,
-						Status:  t.State,
-						File:    t.File,
-					}
-					if t.Failure != nil {
-						tr.Message = t.Failure.Message
-					}
-					report.Tests = append(report.Tests, tr)
+				// Capture every test with its state (passed/failed/skipped),
+				// not just failures — flaky detection needs to see a test
+				// both pass and fail across runs to flag it.
+				res := TestResult{
+					Name:    t.Name,
+					Package: suite.Name,
+					Status:  t.State,
+					File:    t.File,
 				}
+				if t.Failure != nil {
+					res.Message = t.Failure.Message
+				}
+				report.Tests = append(report.Tests, res)
 			}
 		}
 	}
