@@ -78,20 +78,23 @@ an org that blocks debug sessions)? Say so and mark the fix **provisional** —
 that's an acceptable outcome, not a failure.
 
 ## Pull the actual failure (job log)
-`latest_disruption_run_id` (on each `flaky list` row) is a **job id** — the job
-whose run disrupted. Pull its log and slice the failure; no pipeline id or
-`test report` needed (and it works for ExUnit, which `test report` can't parse):
+A disruption `run_id` is a **job id** — the job whose run disrupted. Given a
+`test_id`, get one from `sem-ai flaky disruptions <test_id>` (`.run_id` per
+occurrence; skip the null-padding rows) — that's the reliable source. (`flaky
+list` rows also carry `latest_disruption_run_id`, but `flaky list --file` is
+exact-match and often returns `[]`.) Then pull the log and slice the failure — no
+pipeline id or `test report` needed (works for ExUnit, which `test report` can't parse):
 ```bash
-sem-ai job log <run_id> | jq -r '.[].output // empty' > /tmp/joblog.txt
+sem-ai job log <run_id> | jq -r '.[].output // empty' > /tmp/joblog.txt   # NOTE: job log takes NO --project
 # ExUnit markers (adjust per runner); read around the hits:
 grep -nE '[0-9]+\) (test|doctest)|match \(=\) failed|left:|right:|stacktrace:|[0-9]+ tests?, [0-9]+ failure' /tmp/joblog.txt
 ```
-You get the real assertion — `code:`, `left:`/`right:`, `file:line`, stacktrace —
-not a guess. For more samples (or if the latest is gone), `sem-ai flaky
-disruptions <test_id>` lists per-occurrence `run_id`s (skip the null-padding rows).
+You get the real assertion — `code:`, `left:`/`right:`, `file:line`, stacktrace — not a guess.
 - A job runs many tests — **filter to the block whose test name matches** your target.
 - Markers are runner-shaped (ExUnit shown; Go/rspec/jest differ); `job log` itself
   works for any runner, only the slice pattern changes.
+- Via the MCP `job_log` tool the log may come back as a saved-file path (read it);
+  the `| jq` pipe above is the CLI form.
 - **Retention:** old jobs' logs expire; the latest disruption has the best odds.
   If it's gone, diagnose from source + the playbook above.
 - Timeout-class flakes show a raised exception (e.g. `Timeout: ...`), not an
