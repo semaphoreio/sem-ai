@@ -28,7 +28,8 @@ below requires it). Pick a test that recurs across many commits and whose
 sem-ai flaky show <test_id> --project <name>     # POSITIONAL test_id (NOT --file). Returns per-context pass_rate, p95, disruptions_count.
 ```
 `latest_disruption_run_id` is NOT in `show` — it's on the `flaky list` row
-(step 1). Contexts whose stats are all-null simply have no disruptions recorded
+(step 1), and it's a **job id** you can feed to `job log` (see *Pull the actual
+failure*). Contexts whose stats are all-null simply have no disruptions recorded
 on that branch; ignore them and read the non-null ones.
 
 ### 3. Locate in the code (paths are app-relative)
@@ -43,6 +44,8 @@ from `flaky show` (e.g. `Elixir.Front.Browser.SelfHostedAgentsTest` → the
 `front` app). Read the test AND the code it exercises — flakes live in the seam.
 
 ### 4. Diagnose — match the playbook
+First **pull the real failure** when you can (see *Pull the actual failure* below):
+the `left:`/`right:` + stacktrace beat guessing. Then match the playbook:
 | signal | likely class | typical fix |
 |---|---|---|
 | asserts `==:lt`/`>` on consecutive `now()`/timestamps; ~95% pass | clock-tie / nondeterministic time | inclusive comparison on BOTH bounds (`in [:lt,:eq]` / `[:gt,:eq]`), or freeze/inject time |
@@ -74,14 +77,25 @@ or a targeted rerun, and check the pass rate moved.
 an org that blocks debug sessions)? Say so and mark the fix **provisional** —
 that's an acceptable outcome, not a failure.
 
-## Getting the actual failure (best-effort)
-Bridging a disruption to the real assertion text is unreliable by design:
-`latest_disruption_run_id` is a *workflow* id (`sem-ai test report` wants a
-*pipeline* id), `test report` doesn't parse ExUnit (most of this monorepo), and
-old runs are past retention. For ExUnit/old flakes, diagnose from source + the
-failure-name playbook above — the test name + history + code are usually enough.
-Timeout-class flakes surface as a raised exception (e.g. `Timeout: ...`), not an
-assertion diff — don't hunt for a failing `assert` line.
+## Pull the actual failure (job log)
+`latest_disruption_run_id` (on each `flaky list` row) is a **job id** — the job
+whose run disrupted. Pull its log and slice the failure; no pipeline id or
+`test report` needed (and it works for ExUnit, which `test report` can't parse):
+```bash
+sem-ai job log <run_id> | jq -r '.[].output // empty' > /tmp/joblog.txt
+# ExUnit markers (adjust per runner); read around the hits:
+grep -nE '[0-9]+\) (test|doctest)|match \(=\) failed|left:|right:|stacktrace:|[0-9]+ tests?, [0-9]+ failure' /tmp/joblog.txt
+```
+You get the real assertion — `code:`, `left:`/`right:`, `file:line`, stacktrace —
+not a guess. For more samples (or if the latest is gone), `sem-ai flaky
+disruptions <test_id>` lists per-occurrence `run_id`s (skip the null-padding rows).
+- A job runs many tests — **filter to the block whose test name matches** your target.
+- Markers are runner-shaped (ExUnit shown; Go/rspec/jest differ); `job log` itself
+  works for any runner, only the slice pattern changes.
+- **Retention:** old jobs' logs expire; the latest disruption has the best odds.
+  If it's gone, diagnose from source + the playbook above.
+- Timeout-class flakes show a raised exception (e.g. `Timeout: ...`), not an
+  assertion diff — don't hunt for a failing `assert` line.
 
 ## Composes with
 - **test-intelligence** — `sem-ai test report|summary` failure detail (when retrievable).
