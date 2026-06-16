@@ -66,6 +66,12 @@ var (
 	// ExUnit timing: "Finished in 11.0 seconds"
 	exunitTimingRe = regexp.MustCompile(`Finished in ([0-9.]+) seconds`)
 
+	// ExUnit failure header: "  1) test foo bar (Some.Module.Test)"
+	exunitHeaderRe = regexp.MustCompile(`^\s+\d+\)\s+(?:test|doctest)\s+(.+?)\s+\(([\w.]+)\)\s*$`)
+
+	// ExUnit location line immediately after header: "     test/foo_test.exs:42"
+	exunitLocationRe = regexp.MustCompile(`^\s+(\S+):(\d+)\s*$`)
+
 	// minitest (Ruby): "10 runs, 20 assertions, 1 failures, 0 errors, 0 skips"
 	minitestSummaryRe = regexp.MustCompile(`(\d+) runs?,\s*\d+ assertions?,\s*(\d+) failures?,\s*(\d+) errors?,\s*(\d+) skips?`)
 )
@@ -256,7 +262,82 @@ func parseExUnit(output string) *TestReport {
 		report.Duration = tm[1] + "s"
 	}
 
+	report.Tests = parseExUnitFailures(output)
+
 	return report
+}
+
+// parseExUnitFailures scans the output for numbered failure blocks and returns
+// one TestResult per block. A block starts at "  N) test/doctest Name (Module)"
+// and ends just before the next such header or the summary line.
+func parseExUnitFailures(output string) []TestResult {
+	lines := strings.Split(output, "\n")
+	var results []TestResult
+
+	i := 0
+	for i < len(lines) {
+		hm := exunitHeaderRe.FindStringSubmatch(lines[i])
+		if hm == nil {
+			i++
+			continue
+		}
+
+		tr := TestResult{
+			Name:    hm[1],
+			Package: hm[2],
+			Status:  "failed",
+		}
+
+		// Next non-empty line should be the location (file:line)
+		i++
+		for i < len(lines) && strings.TrimSpace(lines[i]) == "" {
+			i++
+		}
+		if i < len(lines) {
+			if lm := exunitLocationRe.FindStringSubmatch(lines[i]); lm != nil {
+				tr.File = lm[1]
+				tr.Line, _ = strconv.Atoi(lm[2])
+				i++
+			}
+		}
+
+		// Collect the body lines.
+		// A body line is: blank, OR starts with ≥4 spaces (body is 5-indent,
+		// stacktrace entries are 7-indent). Stop at the first non-blank line
+		// that has <4 leading spaces — this naturally catches "  * test ..."
+		// progress markers, "  N) ..." next-failure headers, bare module
+		// headers, and the summary line, all without needing separate regexps.
+		var bodyLines []string
+		for i < len(lines) {
+			line := lines[i]
+			if strings.TrimSpace(line) == "" {
+				bodyLines = append(bodyLines, "")
+				i++
+				continue
+			}
+			// Count leading spaces
+			trimmed := strings.TrimLeft(line, " ")
+			leading := len(line) - len(trimmed)
+			if leading < 4 {
+				break
+			}
+			bodyLines = append(bodyLines, strings.TrimPrefix(line, "     "))
+			i++
+		}
+
+		// Trim leading/trailing blank lines from the body
+		for len(bodyLines) > 0 && strings.TrimSpace(bodyLines[0]) == "" {
+			bodyLines = bodyLines[1:]
+		}
+		for len(bodyLines) > 0 && strings.TrimSpace(bodyLines[len(bodyLines)-1]) == "" {
+			bodyLines = bodyLines[:len(bodyLines)-1]
+		}
+
+		tr.Message = strings.Join(bodyLines, "\n")
+		results = append(results, tr)
+	}
+
+	return results
 }
 
 func parseMinitest(output string) *TestReport {

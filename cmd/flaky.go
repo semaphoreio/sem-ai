@@ -4,10 +4,12 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/url"
+	"strings"
 
 	"github.com/semaphoreio/sem-ai/pkg/client"
 	"github.com/semaphoreio/sem-ai/pkg/config"
 	"github.com/semaphoreio/sem-ai/pkg/output"
+	"github.com/semaphoreio/sem-ai/pkg/testparse"
 	"github.com/spf13/cobra"
 )
 
@@ -305,6 +307,237 @@ var flakyTrendsCmd = &cobra.Command{
 	},
 }
 
+// ---- flaky failure ----
+
+var (
+	flakyFailureProject string
+	flakyFailureRunID   string
+	flakyFailurePage    int
+	flakyFailureFilters flakyFilters
+)
+
+// flakyFailureResult is the structured output of the `flaky failure` command.
+type flakyFailureResult struct {
+	TestID    string                  `json:"test_id"`
+	TestName  string                  `json:"test_name"`
+	RunID     string                  `json:"run_id"`
+	Framework string                  `json:"framework"`
+	Summary   flakyFailureSummary     `json:"summary"`
+	Matched   bool                    `json:"matched"`
+	Failures  []flakyFailureTestEntry `json:"failures"`
+}
+
+type flakyFailureSummary struct {
+	Total  int `json:"total"`
+	Passed int `json:"passed"`
+	Failed int `json:"failed"`
+}
+
+type flakyFailureTestEntry struct {
+	Name    string `json:"name"`
+	Package string `json:"package,omitempty"`
+	File    string `json:"file,omitempty"`
+	Line    int    `json:"line,omitempty"`
+	Message string `json:"message,omitempty"`
+}
+
+var flakyFailureCmd = &cobra.Command{
+	Use:   "failure <test_id>",
+	Short: "Show the real failure for a flaky test by fetching its disruption job log",
+	Long: `Resolves the latest disruption's job id, fetches that job's log, and
+extracts the failing test's assertion/message from the log output.
+
+Use --run-id to skip disruption resolution and fetch a specific job directly.`,
+	Args:    cobra.ExactArgs(1),
+	Example: `  sem-ai flaky failure 3f2a... --project my-project
+  sem-ai flaky failure 3f2a... --project my-project --run-id <job-id>`,
+	RunE: func(cmd *cobra.Command, args []string) error {
+		if !config.IsConfigured() {
+			return fmt.Errorf("not configured — run 'sem-ai connect' first")
+		}
+		testID := args[0]
+
+		projectID, err := resolveProjectID(flakyFailureProject)
+		if err != nil {
+			output.Error("project_error", err.Error(), 1)
+			return err
+		}
+
+		c := client.New()
+
+		// Step 1: resolve job id
+		jobID := flakyFailureRunID
+		if jobID == "" {
+			jobID, err = resolveDisruptionJobID(c, projectID, testID)
+			if err != nil {
+				return err
+			}
+		}
+
+		// Step 2: get the test name for filtering
+		testName := resolveTestName(c, projectID, testID, flakyFailureFilters)
+
+		// Step 3: fetch the job log
+		rawLog, err := fetchJobLog(c, jobID)
+		if err != nil {
+			return err
+		}
+
+		// Step 4: parse
+		report := testparse.ParseFromLogs(rawLog)
+		if report == nil {
+			output.Error("unparsed", "could not parse test output from job log (unknown framework)", 1)
+			return fmt.Errorf("unparsed log")
+		}
+
+		// Step 5: filter to the target test and build result
+		result := buildFailureResult(testID, testName, jobID, report)
+		output.Result(result)
+		return nil
+	},
+}
+
+// resolveDisruptionJobID fetches the disruptions list and returns the first non-empty run_id.
+func resolveDisruptionJobID(c *client.Client, projectID, testID string) (string, error) {
+	resp, err := c.ListWithParams(
+		flakyResourcePath(projectID, testID, "disruptions"),
+		pagedFilterParams(flakyFilters{}, 1, 10),
+	)
+	if err != nil {
+		output.Error("api_error", err.Error(), 1)
+		return "", err
+	}
+	if resp.StatusCode != 200 {
+		output.Error("api_error", fmt.Sprintf("HTTP %d: %s", resp.StatusCode, string(resp.Body)), resp.StatusCode)
+		return "", fmt.Errorf("API returned %d", resp.StatusCode)
+	}
+
+	var disruptions []struct {
+		RunID string `json:"run_id"`
+	}
+	if err := json.Unmarshal(resp.Body, &disruptions); err != nil {
+		output.Error("parse_error", fmt.Sprintf("failed to decode disruptions: %v", err), 1)
+		return "", err
+	}
+
+	for _, d := range disruptions {
+		if d.RunID != "" {
+			return d.RunID, nil
+		}
+	}
+
+	output.Error("no_disruptions", "no disruptions with a run_id found for this test", 1)
+	return "", fmt.Errorf("no disruptions")
+}
+
+// resolveTestName fetches the flaky test record and returns its name field.
+// Returns empty string on any error — the caller treats it as best-effort.
+func resolveTestName(c *client.Client, projectID, testID string, filters flakyFilters) string {
+	resp, err := c.ListWithParams(flakyResourcePath(projectID, testID, ""), filters.toValues())
+	if err != nil {
+		return ""
+	}
+	if resp.StatusCode != 200 {
+		return ""
+	}
+	var record struct {
+		Name string `json:"name"`
+	}
+	if err := json.Unmarshal(resp.Body, &record); err != nil {
+		return ""
+	}
+	return record.Name
+}
+
+// fetchJobLog fetches a job's log and returns the concatenated cmd_output text.
+func fetchJobLog(c *client.Client, jobID string) (string, error) {
+	resp, err := c.Get("logs", jobID)
+	if err != nil {
+		output.Error("api_error", err.Error(), 1)
+		return "", err
+	}
+	if resp.StatusCode != 200 {
+		msg := fmt.Sprintf("job log for %s unavailable (HTTP %d) — likely past retention; diagnose from source", jobID, resp.StatusCode)
+		output.Error("log_unavailable", msg, resp.StatusCode)
+		return "", fmt.Errorf("log unavailable: HTTP %d", resp.StatusCode)
+	}
+
+	var logs struct {
+		Events []struct {
+			Type   string `json:"event"`
+			Output string `json:"output"`
+		} `json:"events"`
+	}
+	if err := json.Unmarshal(resp.Body, &logs); err != nil {
+		output.Error("parse_error", fmt.Sprintf("failed to decode job log: %v", err), 1)
+		return "", err
+	}
+
+	var sb strings.Builder
+	for _, e := range logs.Events {
+		if e.Type == "cmd_output" {
+			sb.WriteString(e.Output)
+		}
+	}
+	return sb.String(), nil
+}
+
+// buildFailureResult matches failures from the report against the test name
+// and assembles the command's output struct.
+func buildFailureResult(testID, testName, jobID string, report *testparse.TestReport) flakyFailureResult {
+	result := flakyFailureResult{
+		TestID:   testID,
+		TestName: testName,
+		RunID:    jobID,
+		Framework: report.Framework,
+		Summary: flakyFailureSummary{
+			Total:  report.Total,
+			Passed: report.Passed,
+			Failed: report.Failed,
+		},
+	}
+
+	// Normalise the flaky test name for matching: strip leading "test " / "doctest "
+	needle := strings.TrimSpace(testName)
+	needle = strings.TrimPrefix(needle, "doctest ")
+	needle = strings.TrimPrefix(needle, "test ")
+
+	var matched []flakyFailureTestEntry
+	for _, t := range report.Tests {
+		if t.Status != "failed" {
+			continue
+		}
+		if needle != "" && (strings.Contains(t.Name, needle) || strings.Contains(needle, t.Name)) {
+			matched = append(matched, toEntry(t))
+		}
+	}
+
+	if len(matched) > 0 {
+		result.Matched = true
+		result.Failures = matched
+	} else {
+		result.Matched = false
+		// Return all failures so the caller still has something to work with
+		for _, t := range report.Tests {
+			if t.Status == "failed" {
+				result.Failures = append(result.Failures, toEntry(t))
+			}
+		}
+	}
+
+	return result
+}
+
+func toEntry(t testparse.TestResult) flakyFailureTestEntry {
+	return flakyFailureTestEntry{
+		Name:    t.Name,
+		Package: t.Package,
+		File:    t.File,
+		Line:    t.Line,
+		Message: t.Message,
+	}
+}
+
 func init() {
 	flakyListCmd.Flags().StringVar(&flakyListProject, "project", "", "project name or ID (required)")
 	flakyListCmd.Flags().IntVar(&flakyListPage, "page", 1, "page number")
@@ -326,9 +559,15 @@ func init() {
 	flakyTrendsCmd.Flags().StringVar(&flakyTrendsMetric, "metric", "flaky", "series: flaky|disruptions")
 	addFilterFlags(flakyTrendsCmd, &flakyTrendsFilters)
 
+	flakyFailureCmd.Flags().StringVar(&flakyFailureProject, "project", "", "project name or ID (required)")
+	flakyFailureCmd.Flags().StringVar(&flakyFailureRunID, "run-id", "", "use this job id directly instead of resolving the latest disruption")
+	flakyFailureCmd.Flags().IntVar(&flakyFailurePage, "page", 1, "page number for disruption lookup")
+	addFilterFlags(flakyFailureCmd, &flakyFailureFilters)
+
 	flakyCmd.AddCommand(flakyListCmd)
 	flakyCmd.AddCommand(flakyShowCmd)
 	flakyCmd.AddCommand(flakyDisruptionsCmd)
 	flakyCmd.AddCommand(flakyTrendsCmd)
+	flakyCmd.AddCommand(flakyFailureCmd)
 	rootCmd.AddCommand(flakyCmd)
 }

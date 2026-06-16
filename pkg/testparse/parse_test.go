@@ -1,6 +1,7 @@
 package testparse
 
 import (
+	"strings"
 	"testing"
 )
 
@@ -741,6 +742,154 @@ func TestParseJUnitJSONInvalidData(t *testing.T) {
 	got := ParseJUnitJSON([]byte(`not valid json at all`))
 	if got != nil {
 		t.Errorf("expected nil for invalid JSON, got %+v", got)
+	}
+}
+
+// ---- ExUnit failure detail parsing ---------------------------------------------
+
+func TestParseExUnitFailureDetails(t *testing.T) {
+	fixture := `
+  1) test just_run scheduling implementation schedule() - restarting scheduler task is terminated if periodic is deleted (Scheduler.Actions.ScheduleWfImpl.Test)
+     test/actions/schedule_wf_impl_test.exs:542
+     match (=) failed
+     code:  assert %{workers: 1} = ScheduleTaskManager.count_children()
+     left:  %{workers: 1}
+     right: %{active: 2, specs: 2, supervisors: 0, workers: 2}
+     stacktrace:
+       test/actions/schedule_wf_impl_test.exs:566: (test)
+
+  2) test other thing fails (Some.Other.Test)
+     test/other_test.exs:10
+     Assertion with == failed
+     code:  assert foo == bar
+     left:  1
+     right: 2
+     stacktrace:
+       test/other_test.exs:12: (test)
+
+Finished in 11.0 seconds
+30 doctests, 302 tests, 2 failures
+`
+
+	got := ParseFromLogs(fixture)
+	if got == nil {
+		t.Fatal("expected non-nil report")
+	}
+	if got.Framework != "exunit" {
+		t.Errorf("Framework = %q, want exunit", got.Framework)
+	}
+	if got.Total != 332 {
+		t.Errorf("Total = %d, want 332 (30 doctests + 302 tests)", got.Total)
+	}
+	if got.Failed != 2 {
+		t.Errorf("Failed = %d, want 2", got.Failed)
+	}
+	if len(got.Tests) != 2 {
+		t.Fatalf("expected 2 failure blocks, got %d", len(got.Tests))
+	}
+
+	first := got.Tests[0]
+	if first.Name != "just_run scheduling implementation schedule() - restarting scheduler task is terminated if periodic is deleted" {
+		t.Errorf("Tests[0].Name = %q", first.Name)
+	}
+	if first.Package != "Scheduler.Actions.ScheduleWfImpl.Test" {
+		t.Errorf("Tests[0].Package = %q", first.Package)
+	}
+	if first.File != "test/actions/schedule_wf_impl_test.exs" {
+		t.Errorf("Tests[0].File = %q", first.File)
+	}
+	if first.Line != 542 {
+		t.Errorf("Tests[0].Line = %d, want 542", first.Line)
+	}
+	if first.Status != "failed" {
+		t.Errorf("Tests[0].Status = %q, want failed", first.Status)
+	}
+	if !strings.Contains(first.Message, "left:  %{workers: 1}") {
+		t.Errorf("Tests[0].Message missing left assertion, got: %q", first.Message)
+	}
+	if !strings.Contains(first.Message, "right: %{active: 2, specs: 2, supervisors: 0, workers: 2}") {
+		t.Errorf("Tests[0].Message missing right assertion, got: %q", first.Message)
+	}
+
+	second := got.Tests[1]
+	if second.Name != "other thing fails" {
+		t.Errorf("Tests[1].Name = %q", second.Name)
+	}
+	if second.Package != "Some.Other.Test" {
+		t.Errorf("Tests[1].Package = %q", second.Package)
+	}
+	if second.File != "test/other_test.exs" {
+		t.Errorf("Tests[1].File = %q", second.File)
+	}
+	if second.Line != 10 {
+		t.Errorf("Tests[1].Line = %d, want 10", second.Line)
+	}
+}
+
+func TestParseExUnitNoFailuresEmptyTests(t *testing.T) {
+	input := "240 tests, 0 failures\nFinished in 5.0 seconds"
+	got := ParseFromLogs(input)
+	if got == nil {
+		t.Fatal("expected non-nil report")
+	}
+	if len(got.Tests) != 0 {
+		t.Errorf("expected no Tests entries for zero-failure run, got %d", len(got.Tests))
+	}
+}
+
+// Regression: failure body must stop at the first line with <4 leading spaces
+// (progress markers "  * test ...", module headers, etc.) and must NOT swallow
+// the rest of the suite output up to the summary line.
+func TestParseExUnitFailureBodyBounded(t *testing.T) {
+	fixture := `
+  1) test alpha fails (My.Test)
+     test/my_test.exs:10
+     match (=) failed
+     code:  assert a == b
+     left:  1
+     right: 2
+     stacktrace:
+       test/my_test.exs:12: (test)
+
+  * test alpha fails (12.3ms) [L#10]
+  * test beta passes (4.1ms) [L#20]
+
+My.Other.Test [test/other_test.exs]
+  * test gamma passes (1.0ms) [L#5]
+
+Finished in 5.0 seconds
+1 doctest, 50 tests, 1 failure
+`
+
+	got := ParseFromLogs(fixture)
+	if got == nil {
+		t.Fatal("expected non-nil report")
+	}
+	if len(got.Tests) != 1 {
+		t.Fatalf("expected 1 failure block, got %d", len(got.Tests))
+	}
+
+	msg := got.Tests[0].Message
+	if !strings.Contains(msg, "left:  1") {
+		t.Errorf("message missing 'left:  1', got: %q", msg)
+	}
+	if !strings.Contains(msg, "right: 2") {
+		t.Errorf("message missing 'right: 2', got: %q", msg)
+	}
+	if !strings.Contains(msg, "stacktrace:") {
+		t.Errorf("message missing 'stacktrace:', got: %q", msg)
+	}
+	if strings.Contains(msg, "test beta passes") {
+		t.Errorf("message must not contain progress line 'test beta passes', got: %q", msg)
+	}
+	if strings.Contains(msg, "My.Other.Test") {
+		t.Errorf("message must not contain module header 'My.Other.Test', got: %q", msg)
+	}
+	if strings.Contains(msg, "test gamma passes") {
+		t.Errorf("message must not contain unrelated test 'test gamma passes', got: %q", msg)
+	}
+	if strings.Contains(msg, "Finished in") {
+		t.Errorf("message must not contain summary 'Finished in', got: %q", msg)
 	}
 }
 
