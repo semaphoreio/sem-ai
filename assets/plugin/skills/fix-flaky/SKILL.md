@@ -33,9 +33,11 @@ failure*) — don't hand-chase run ids. (`latest_disruption_run_id` is on the
 disruptions recorded on that branch; ignore them and read the non-null ones.
 
 ### 3. Locate in the code (paths are app-relative)
-`test_file` is relative to the *app* root, not the repo root — in this monorepo
-`test/foo/bar_test.exs` lives under an app dir: `plumber/ppl/test/…`,
-`ee/rbac/test/…`, `front/test/browser/…`. Resolve it:
+`flaky failure` (step 2) already hands you the failing `file`+`line` — no need to
+derive them from the test name. But the path is **app-relative**, not repo-root:
+in this monorepo `test/foo/bar_test.exs` lives under an app dir: `plumber/ppl/test/…`,
+`ee/rbac/test/…`, `front/test/browser/…`, the scheduler under
+`periodic_scheduler/scheduler/test/…`. Resolve the on-disk path:
 ```bash
 git -C <repo> ls-files | grep -F "$(echo <test_file> | sed 's/:[0-9]*$//')"
 ```
@@ -53,6 +55,7 @@ the `left:`/`right:` + stacktrace beat guessing. Then match the playbook:
 | in-test wait/sleep budget < failure tail | timeout too short for async work | raise the wait budget to match a non-flaky sibling; make the predicate nil-safe |
 | asserts order of a list query with no `ORDER BY` | nondeterministic DB/collection order | add deterministic ordering at the source |
 | depends on leftover state between tests | shared/global state | isolate setup/teardown; unique fixtures |
+| asserts a count of OTP processes/children (e.g. `count_children` → `%{active: N, workers: N}`) that's off by one+ | leaked process from a prior test (shared named supervisor / registered GenServer) | terminate/drain the named processes in `setup`/`on_exit`, not just the DB |
 | calls a real external service | external dependency | stub/mock, or mark + isolate |
 
 p95 (from `flaky show`) is the heuristic **only for the timeout row** — for
@@ -94,6 +97,9 @@ with `--run-id <job_id>`.
   source + the playbook above.
 - Timeout-class flakes show a raised exception (e.g. `Timeout: ...`), not an
   assertion diff — `message` carries the exception, not a failing `assert`.
+- For ExUnit, `message` often includes the full process **Logger output** after the
+  assertion — read all of it; the event ordering there is frequently the decisive
+  evidence (e.g. an async consumer firing *after* the step you tested), not just `left/right`.
 
 **Manual fallback** (older binaries without `flaky failure`): a `run_id` from
 `flaky disruptions <test_id>` (`.run_id`; skip null-padding rows) is a **job id** →
@@ -109,7 +115,7 @@ sem-ai job log <run_id> | jq -r '.[].output // empty' \
 - **testbox** — step 6 verification.
 
 ## Gotchas
-- `flaky show`/`disruptions` take the `test_id` **positionally**; `--file` returns empty silently.
+- `flaky show`/`disruptions`/`failure` take the `test_id` **positionally** (the `args` field via MCP); `--file` returns empty silently.
 - `flaky disruptions` can return null-timestamp padding rows — ignore them.
 - `flaky show` per-context `pass_rate`/`disruptions_count` can be `null` even when disruptions exist — trust the disruption rows.
 - Don't `sem-ai context switch` mid-task if one is set; pass `--project`.
