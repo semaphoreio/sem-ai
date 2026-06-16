@@ -19,27 +19,34 @@ sem-ai flaky list --project <name> \
 ```
 `--disruptions ">1"` drops one-off noise (single-failure `pass_rate:50` rows);
 the sort ranks by recurrence. Output omits the per-test `disruption_history`
-histogram by default (pass `--full` if you ever need it). Pick a test that
-recurs across many commits and whose `test_file` you can read.
+histogram by default (rarely needed — `--full` restores it; no diagnosis path
+below requires it). Pick a test that recurs across many commits and whose
+`test_file` you can read.
 
 ### 2. Get the per-context history
 ```bash
-sem-ai flaky show <test_id> --project <name>     # POSITIONAL test_id (NOT --file). per-context pass_rate, p95, latest_disruption_run_id
+sem-ai flaky show <test_id> --project <name>     # POSITIONAL test_id (NOT --file). Returns per-context pass_rate, p95, disruptions_count.
 ```
+`latest_disruption_run_id` is NOT in `show` — it's on the `flaky list` row
+(step 1). Contexts whose stats are all-null simply have no disruptions recorded
+on that branch; ignore them and read the non-null ones.
 
 ### 3. Locate in the code (paths are app-relative)
-`test_file` is relative to the *app* root, not the repo root; in a monorepo
-`test/foo/bar_test.exs` lives at e.g. `plumber/ppl/test/foo/bar_test.exs`:
+`test_file` is relative to the *app* root, not the repo root — in this monorepo
+`test/foo/bar_test.exs` lives under an app dir: `plumber/ppl/test/…`,
+`ee/rbac/test/…`, `front/test/browser/…`. Resolve it:
 ```bash
-git -C <repo> ls-files | grep -F "$(echo <test_file> | sed 's/:.*//')"
+git -C <repo> ls-files | grep -F "$(echo <test_file> | sed 's/:[0-9]*$//')"
 ```
-Read the test AND the code it exercises — flakes live in the seam.
+If that returns matches in several apps, disambiguate with the `test_group`
+from `flaky show` (e.g. `Elixir.Front.Browser.SelfHostedAgentsTest` → the
+`front` app). Read the test AND the code it exercises — flakes live in the seam.
 
 ### 4. Diagnose — match the playbook
 | signal | likely class | typical fix |
 |---|---|---|
 | asserts `==:lt`/`>` on consecutive `now()`/timestamps; ~95% pass | clock-tie / nondeterministic time | inclusive comparison on BOTH bounds (`in [:lt,:eq]` / `[:gt,:eq]`), or freeze/inject time |
-| UI test clicks an element a poller/JS re-renders; `StaleReferenceError` | stale-element after async render | retry-on-stale click; assert element present first |
+| UI test clicks an element a poller/JS re-renders; `StaleReferenceError` | stale-element after async render | wrap the click in a retry-on-stale helper (a presence-assert does NOT fix it — the node goes stale *after* lookup) |
 | in-test wait/sleep budget < failure tail | timeout too short for async work | raise the wait budget to match a non-flaky sibling; make the predicate nil-safe |
 | asserts order of a list query with no `ORDER BY` | nondeterministic DB/collection order | add deterministic ordering at the source |
 | depends on leftover state between tests | shared/global state | isolate setup/teardown; unique fixtures |
@@ -62,9 +69,10 @@ Match repo conventions; no comments unless the repo uses them.
 
 ### 6. Verify by RE-RUNNING (one green proves nothing)
 Use the **testbox** skill to run the single test many times against your change,
-or a targeted rerun, and check the pass rate moved. If you can't verify (no
-local toolchain, can't push, testbox unavailable — e.g. an org that blocks
-debug sessions), say so and mark the fix **provisional**.
+or a targeted rerun, and check the pass rate moved.
+**Can't verify** (no local toolchain, can't push, or testbox unavailable — e.g.
+an org that blocks debug sessions)? Say so and mark the fix **provisional** —
+that's an acceptable outcome, not a failure.
 
 ## Getting the actual failure (best-effort)
 Bridging a disruption to the real assertion text is unreliable by design:
@@ -72,6 +80,8 @@ Bridging a disruption to the real assertion text is unreliable by design:
 *pipeline* id), `test report` doesn't parse ExUnit (most of this monorepo), and
 old runs are past retention. For ExUnit/old flakes, diagnose from source + the
 failure-name playbook above — the test name + history + code are usually enough.
+Timeout-class flakes surface as a raised exception (e.g. `Timeout: ...`), not an
+assertion diff — don't hunt for a failing `assert` line.
 
 ## Composes with
 - **test-intelligence** — `sem-ai test report|summary` failure detail (when retrievable).
