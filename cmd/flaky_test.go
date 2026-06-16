@@ -83,6 +83,38 @@ func TestFlakyTrendsEndpoint(t *testing.T) {
 	}
 }
 
+func TestStripDisruptionHistory(t *testing.T) {
+	in := []any{
+		map[string]any{"test_id": "a", "disruption_history": []any{map[string]any{"day": "x"}}, "pass_rate": 94.0},
+		map[string]any{"test_id": "b", "disruption_history": []any{}, "pass_rate": 91.0},
+		map[string]any{"test_id": "c", "pass_rate": 88.0},
+	}
+	out, ok := stripDisruptionHistory(in).([]any)
+	if !ok || len(out) != 3 {
+		t.Fatalf("expected 3-element array, got %T %#v", out, out)
+	}
+	for _, el := range out {
+		m := el.(map[string]any)
+		if _, present := m["disruption_history"]; present {
+			t.Errorf("disruption_history not stripped: %#v", m)
+		}
+		if _, present := m["test_id"]; !present {
+			t.Errorf("test_id should be preserved: %#v", m)
+		}
+	}
+}
+
+func TestStripDisruptionHistory_passesThroughNonArray(t *testing.T) {
+	in := map[string]any{"test_id": "a", "disruption_history": []any{}}
+	got, ok := stripDisruptionHistory(in).(map[string]any)
+	if !ok || got["disruption_history"] == nil {
+		t.Errorf("non-array map input should pass through unchanged: %#v", got)
+	}
+	if _, ok := stripDisruptionHistory("not-json").(string); !ok {
+		t.Errorf("non-array input should pass through unchanged")
+	}
+}
+
 func TestClampPageSize(t *testing.T) {
 	cases := map[int]int{100000: 100, 101: 100, 100: 100, 50: 50, 1: 1, 0: 1, -5: 1}
 	for in, want := range cases {
