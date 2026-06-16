@@ -27,10 +27,10 @@ below requires it). Pick a test that recurs across many commits and whose
 ```bash
 sem-ai flaky show <test_id> --project <name>     # POSITIONAL test_id (NOT --file). Returns per-context pass_rate, p95, disruptions_count.
 ```
-`latest_disruption_run_id` is NOT in `show` — it's on the `flaky list` row
-(step 1), and it's a **job id** you can feed to `job log` (see *Pull the actual
-failure*). Contexts whose stats are all-null simply have no disruptions recorded
-on that branch; ignore them and read the non-null ones.
+For the real failure, run `flaky failure <test_id>` (see *Pull the actual
+failure*) — don't hand-chase run ids. (`latest_disruption_run_id` is on the
+`flaky list` row, not `show`.) Contexts whose stats are all-null simply have no
+disruptions recorded on that branch; ignore them and read the non-null ones.
 
 ### 3. Locate in the code (paths are app-relative)
 `test_file` is relative to the *app* root, not the repo root — in this monorepo
@@ -77,28 +77,31 @@ or a targeted rerun, and check the pass rate moved.
 an org that blocks debug sessions)? Say so and mark the fix **provisional** —
 that's an acceptable outcome, not a failure.
 
-## Pull the actual failure (job log)
-A disruption `run_id` is a **job id** — the job whose run disrupted. Given a
-`test_id`, get one from `sem-ai flaky disruptions <test_id>` (`.run_id` per
-occurrence; skip the null-padding rows) — that's the reliable source. (`flaky
-list` rows also carry `latest_disruption_run_id`, but `flaky list --file` is
-exact-match and often returns `[]`.) Then pull the log and slice the failure — no
-pipeline id or `test report` needed (works for ExUnit, which `test report` can't parse):
+## Pull the actual failure (`flaky failure`)
 ```bash
-sem-ai job log <run_id> | jq -r '.[].output // empty' > /tmp/joblog.txt   # NOTE: job log takes NO --project
-# ExUnit markers (adjust per runner); read around the hits:
-grep -nE '[0-9]+\) (test|doctest)|match \(=\) failed|left:|right:|stacktrace:|[0-9]+ tests?, [0-9]+ failure' /tmp/joblog.txt
+sem-ai flaky failure <test_id> --project <name>
 ```
-You get the real assertion — `code:`, `left:`/`right:`, `file:line`, stacktrace — not a guess.
-- A job runs many tests — **filter to the block whose test name matches** your target.
-- Markers are runner-shaped (ExUnit shown; Go/rspec/jest differ); `job log` itself
-  works for any runner, only the slice pattern changes.
-- Via the MCP `job_log` tool the log may come back as a saved-file path (read it);
-  the `| jq` pipe above is the CLI form.
-- **Retention:** old jobs' logs expire; the latest disruption has the best odds.
-  If it's gone, diagnose from source + the playbook above.
+One call resolves the latest disruption's job, fetches its log, and returns the
+failing test's **real assertion** as JSON: `{test_name, run_id, framework,
+summary, matched, failures:[{file, line, message}]}`. `message` is the actual
+`code:`/`left:`/`right:`/`stacktrace` — not a guess. It works for ExUnit (which
+`test report` can't parse), and filters to your test. Pin a specific occurrence
+with `--run-id <job_id>`.
+- `matched:false` → the failure block didn't match your test name (the job ran it
+  but it may have passed that run, or the name differs); it returns all failures
+  in that job — eyeball them.
+- `log_unavailable` → the disruption's job log aged out (retention); diagnose from
+  source + the playbook above.
 - Timeout-class flakes show a raised exception (e.g. `Timeout: ...`), not an
-  assertion diff — don't hunt for a failing `assert` line.
+  assertion diff — `message` carries the exception, not a failing `assert`.
+
+**Manual fallback** (older binaries without `flaky failure`): a `run_id` from
+`flaky disruptions <test_id>` (`.run_id`; skip null-padding rows) is a **job id** →
+`job log <run_id>` (takes NO `--project`) → grep the failure block:
+```bash
+sem-ai job log <run_id> | jq -r '.[].output // empty' \
+  | grep -nE '[0-9]+\) (test|doctest)|match \(=\) failed|left:|right:|stacktrace:'
+```
 
 ## Composes with
 - **test-intelligence** — `sem-ai test report|summary` failure detail (when retrievable).
