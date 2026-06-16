@@ -34,16 +34,16 @@ disruptions recorded on that branch; ignore them and read the non-null ones.
 
 ### 3. Locate in the code (paths are app-relative)
 `flaky failure` (step 2) already hands you the failing `file`+`line` — no need to
-derive them from the test name. But the path is **app-relative**, not repo-root:
-in this monorepo `test/foo/bar_test.exs` lives under an app dir: `plumber/ppl/test/…`,
-`ee/rbac/test/…`, `front/test/browser/…`, the scheduler under
-`periodic_scheduler/scheduler/test/…`. Resolve the on-disk path:
+derive them from the test name. But the reported path is **app-relative**, not
+repo-root: in a monorepo `test/foo/bar_test.exs` lives under an app/service dir
+(e.g. `apps/api/test/…`, `apps/web/test/…`, `services/worker/test/…`). Resolve
+the on-disk path:
 ```bash
 git -C <repo> ls-files | grep -F "$(echo <test_file> | sed 's/:[0-9]*$//')"
 ```
-If that returns matches in several apps, disambiguate with the `test_group`
-from `flaky show` (e.g. `Elixir.Front.Browser.SelfHostedAgentsTest` → the
-`front` app). Read the test AND the code it exercises — flakes live in the seam.
+If that returns matches in several apps, disambiguate with the `test_group`/suite
+from `flaky show` (e.g. a group like `MyApp.Web.WidgetTest` → the `web` app).
+Read the test AND the code it exercises — flakes live in the seam.
 
 ### 4. Diagnose — match the playbook
 First **pull the real failure** when you can (see *Pull the actual failure* below):
