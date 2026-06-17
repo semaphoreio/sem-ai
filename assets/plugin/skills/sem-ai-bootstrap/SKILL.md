@@ -1,6 +1,6 @@
 ---
 name: sem-ai-bootstrap
-description: Diagnose sem-ai plugin issues when the sem-ai binary isn't installed yet, and guide the user through binary install. Use when the user reports sem-ai not working, MCP tools missing, slash command not found, `sem-ai connect` failing, or sees "command not found: sem-ai".
+description: 'Diagnose sem-ai plugin issues when the sem-ai binary isn''t installed yet, and guide the user through binary install. Use when the user reports sem-ai not working, MCP tools missing, slash command not found, `sem-ai connect` failing, or sees "command not found: sem-ai".'
 ---
 
 # sem-ai bootstrap
