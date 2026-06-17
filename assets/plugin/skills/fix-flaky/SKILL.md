@@ -45,17 +45,21 @@ If that returns matches in several apps, disambiguate with the `test_group`/suit
 from `flaky show` (e.g. a group like `MyApp.Web.WidgetTest` → the `web` app).
 Read the test AND the code it exercises — flakes live in the seam.
 
-### 4. Diagnose — match the playbook
-First **pull the real failure** when you can (see *Pull the actual failure* below):
-the `left:`/`right:` + stacktrace beat guessing. Then match the playbook:
-| signal | likely class | typical fix |
+### 4. Classify from the real failure — the table names the class, it does NOT hand you the fix
+**Pull the real failure first** (see *Pull the actual failure* below): the
+`left:`/`right:` + stacktrace are the diagnosis. The table only names the
+**class** of nondeterminism and the **direction** a fix usually takes, so you
+know what you're chasing — the actual fix comes from the test in front of you,
+never from a cell.
+
+| signal | likely class | fix direction |
 |---|---|---|
-| asserts `==:lt`/`>` on consecutive `now()`/timestamps; ~95% pass | clock-tie / nondeterministic time | inclusive comparison on BOTH bounds (`in [:lt,:eq]` / `[:gt,:eq]`), or freeze/inject time |
-| UI test clicks an element a poller/JS re-renders; `StaleReferenceError` | stale-element after async render | wrap the click in a retry-on-stale helper (a presence-assert does NOT fix it — the node goes stale *after* lookup) |
-| in-test wait/sleep budget < failure tail | timeout too short for async work | raise the wait budget to match a non-flaky sibling; make the predicate nil-safe |
-| asserts order of a list query with no `ORDER BY` | nondeterministic DB/collection order | add deterministic ordering at the source |
-| depends on leftover state between tests | shared/global state | isolate setup/teardown; unique fixtures |
-| asserts a count of OTP processes/children (e.g. `count_children` → `%{active: N, workers: N}`) that's off by one+ | leaked process from a prior test (shared named supervisor / registered GenServer) | terminate/drain the named processes in `setup`/`on_exit`, not just the DB |
+| asserts strict `<`/`>` (or `compare == :lt`/`:gt`) on two timestamps taken close together; passes most runs | clock-tie / nondeterministic time | allow the tie (inclusive bound), or freeze/inject time so the values are deterministic |
+| element acted on after an async re-render; `StaleReferenceError` | stale-element after async render | retry the lookup+action on stale — a presence-assert does NOT fix it (the node goes stale *after* lookup) |
+| in-test wait/sleep budget shorter than the work's failure tail | timeout too short for async work | raise the wait budget to match a non-flaky sibling; make the predicate nil-safe |
+| asserts order of a query/collection with no explicit ordering | nondeterministic ordering | add deterministic ordering at the source |
+| passes alone but fails after other tests (leftover rows/keys/processes) | shared/global state | isolate setup/teardown; unique fixtures |
+| asserts a count of live processes/children that's off by one+ | leaked process from a prior test (shared named supervisor / registered process) | terminate/drain the named process in `setup`/`on_exit`, not just the DB |
 | calls a real external service | external dependency | stub/mock, or mark + isolate |
 
 p95 (from `flaky show`) is the heuristic **only for the timeout row** — for
