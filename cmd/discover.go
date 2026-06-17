@@ -19,7 +19,7 @@ var discoverCmd = &cobra.Command{
 			"tips": map[string]string{
 				"setup":       "Run 'sem-ai connect <host> <token>' to authenticate",
 				"examples":    "Run 'sem-ai <command> --examples' for usage examples on any command",
-				"skills":      "Run 'sem-ai install-skills' to install AI agent skill definitions",
+				"skills":      "Install the Claude Code / Codex plugin ('/plugin marketplace add semaphoreio/sem-ai' then '/plugin install sem-ai@semaphoreio'), or 'npx skills add semaphoreio/sem-ai --all' for other agents",
 				"debug":       "For CI failures, start with 'sem-ai diagnose <workflow-id>'",
 				"format":      "All commands output JSON. Use --format table for human display",
 			},
