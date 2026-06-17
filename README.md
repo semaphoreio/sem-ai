@@ -54,7 +54,7 @@ codex plugin marketplace add semaphoreio/sem-ai
 codex plugin add sem-ai@semaphoreio
 ```
 
-The plugin drops every sem-ai skill (debug-pipeline, deploy, gha-to-semaphore, init, manage-infra, probe-agent-environment, project-health, sem-ai-bootstrap, semaphore-blocks, semaphore-ci, semaphore-promotions, semaphore-test-results, semaphore-toolbox, test-intelligence, testbox, watch-after-push) into your host.
+The plugin drops every sem-ai skill (debug-pipeline, deploy, fix-flaky, gha-to-semaphore, init, manage-infra, probe-agent-environment, project-health, sem-ai-bootstrap, semaphore-blocks, semaphore-ci, semaphore-promotions, semaphore-test-results, semaphore-toolbox, test-intelligence, testbox, watch-after-push) into your host.
 
 Claude Code refreshes registered marketplaces at session start, picks up the new plugin version, and applies it automatically — there is no manifest flag to set for this. To force an immediate refresh:
 
