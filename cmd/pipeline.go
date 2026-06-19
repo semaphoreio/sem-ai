@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/url"
+	"strings"
 
 	"github.com/semaphoreio/sem-ai/pkg/client"
 	"github.com/semaphoreio/sem-ai/pkg/config"
@@ -320,22 +321,14 @@ Safety:
 			"override":    promoteOverrideFlag,
 		}
 
-		// Parse --param key=val pairs
-		if len(promoteParamsFlag) > 0 {
-			envVars := make([]map[string]string, 0, len(promoteParamsFlag))
-			for _, p := range promoteParamsFlag {
-				for i := range p {
-					if p[i] == '=' {
-						envVars = append(envVars, map[string]string{
-							"name":  p[:i],
-							"value": p[i+1:],
-						})
-						break
-					}
-				}
-			}
-			if len(envVars) > 0 {
-				reqBody["parameters"] = envVars
+		// Promotion parameters go as top-level body keys: the v1alpha
+		// /promotions endpoint maps every key except
+		// pipeline_id/name/override/request_token/switch_id/user_id to a
+		// promotion env var. A nested "parameters" array makes the server
+		// encode a list as an env-var string value and 500.
+		for _, p := range promoteParamsFlag {
+			if k, v, ok := strings.Cut(p, "="); ok {
+				reqBody[k] = v
 			}
 		}
 
