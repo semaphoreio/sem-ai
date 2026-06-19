@@ -22,6 +22,7 @@
 #   .claude-plugin/marketplace.json        (.plugins[0].version)
 #   assets/plugin/plugin.json              (.version)
 #   assets/plugin/.codex-plugin/plugin.json (.version)
+#   mcpb/manifest.json                     (.version)
 #
 # Does NOT push and does NOT tag — release stays gated on deliberate human steps.
 
@@ -30,6 +31,7 @@ set -euo pipefail
 MARKETPLACE=".claude-plugin/marketplace.json"
 PLUGIN="assets/plugin/plugin.json"
 CODEX="assets/plugin/.codex-plugin/plugin.json"
+MCPB="mcpb/manifest.json"
 
 dry_run=0
 if [[ "${1:-}" == "--dry-run" ]]; then
@@ -63,7 +65,7 @@ if ! command -v yq >/dev/null 2>&1; then
   exit 2
 fi
 
-for f in "$MARKETPLACE" "$PLUGIN" "$CODEX"; do
+for f in "$MARKETPLACE" "$PLUGIN" "$CODEX" "$MCPB"; do
   if [[ ! -f "$f" ]]; then
     echo "ERROR: run from repo root — missing $f" >&2
     exit 2
@@ -92,11 +94,12 @@ fi
 run yq -i -o json ".plugins[0].version = \"$version\"" "$MARKETPLACE"
 run yq -i -o json ".version = \"$version\"" "$PLUGIN"
 run yq -i -o json ".version = \"$version\"" "$CODEX"
+run yq -i -o json ".version = \"$version\"" "$MCPB"
 
 if [[ "$dry_run" -eq 0 ]]; then
-  git --no-pager diff --stat "$MARKETPLACE" "$PLUGIN" "$CODEX"
+  git --no-pager diff --stat "$MARKETPLACE" "$PLUGIN" "$CODEX" "$MCPB"
 fi
-run git add "$MARKETPLACE" "$PLUGIN" "$CODEX"
+run git add "$MARKETPLACE" "$PLUGIN" "$CODEX" "$MCPB"
 run git commit -m "chore(release): bump plugin manifests to v$version"
 
 echo

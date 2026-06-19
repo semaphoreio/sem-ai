@@ -120,3 +120,8 @@ say "  /plugin marketplace update semaphoreio         # already installed — re
 say "  /reload-plugins                                # apply changes without restart"
 say ""
 say "Then run /sem-ai:init in a repo to set up Semaphore CI/CD for it."
+say ""
+say "Prefer Claude Desktop? Install the one-click MCPB extension instead of the CLI —"
+say "download sem-ai_${ver}_${os}_${arch}.mcpb from the release and open it:"
+say "  ${DL_BASE}/${tag}/sem-ai_${ver}_${os}_${arch}.mcpb"
+say "It bundles this same server; enter your org host + API token in the install dialog."

@@ -1,0 +1,57 @@
+{
+  "manifest_version": "0.3",
+  "name": "sem-ai",
+  "display_name": "Semaphore CI",
+  "version": "0.1.24",
+  "description": "Agent-first Semaphore CI/CD — manage pipelines, tests, deploys, flaky detection.",
+  "long_description": "sem-ai exposes the full Semaphore CI/CD loop as MCP tools: inspect pipelines and workflows, read job logs, surface flaky tests and insights, manage secrets and notifications, trigger deploys, and validate YAML. Connect with your organization host and a Semaphore API token.",
+  "author": {
+    "name": "Semaphore CI",
+    "url": "https://semaphoreci.com"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/semaphoreio/sem-ai.git"
+  },
+  "homepage": "https://semaphoreci.com",
+  "documentation": "https://github.com/semaphoreio/sem-ai",
+  "support": "https://github.com/semaphoreio/sem-ai/issues",
+  "license": "Apache-2.0",
+  "keywords": ["semaphore", "ci", "cd", "pipelines", "devops"],
+  "server": {
+    "type": "binary",
+    "entry_point": "server/sem-ai",
+    "mcp_config": {
+      "command": "${__dirname}/server/sem-ai",
+      "args": ["mcp"],
+      "env": {
+        "SEMAPHORE_HOST": "${user_config.host}",
+        "SEMAPHORE_API_TOKEN": "${user_config.api_token}"
+      },
+      "platform_overrides": {
+        "win32": {
+          "command": "${__dirname}/server/sem-ai.exe"
+        }
+      }
+    }
+  },
+  "user_config": {
+    "host": {
+      "type": "string",
+      "title": "Organization Host",
+      "description": "Your Semaphore organization host, e.g. myorg.semaphoreci.com",
+      "required": true
+    },
+    "api_token": {
+      "type": "string",
+      "title": "API Token",
+      "description": "Semaphore API token (Account Settings → API Tokens)",
+      "sensitive": true,
+      "required": true
+    }
+  },
+  "tools_generated": true,
+  "compatibility": {
+    "platforms": ["darwin", "win32", "linux"]
+  }
+}

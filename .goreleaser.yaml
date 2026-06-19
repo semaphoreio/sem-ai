@@ -20,6 +20,9 @@ builds:
         goarch: arm64
     ldflags:
       - -s -w -X main.version={{.Version}} -X main.commit={{.Commit}} -X main.date={{.Date}}
+    hooks:
+      post:
+        - 'bash scripts/mcpb-pack.sh "{{ .Path }}" "{{ .Os }}" "{{ .Arch }}" "{{ .Version }}"'
 
 archives:
   - id: default
@@ -30,6 +33,10 @@ archives:
       - goos: windows
         formats:
           - zip
+
+release:
+  extra_files:
+    - glob: ./dist/*.mcpb
 
 checksum:
   name_template: "checksums.txt"

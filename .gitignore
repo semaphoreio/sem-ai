@@ -1,5 +1,7 @@
 sem-ai
 *.exe
+dist/
+*.mcpb
 .planning/
 .DS_Store
 .env
