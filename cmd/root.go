@@ -104,6 +104,9 @@ func Execute() {
 		if err == errExamplesShown {
 			return
 		}
+		if !output.Reported() {
+			fmt.Fprintln(os.Stderr, "Error:", err)
+		}
 		os.Exit(1)
 	}
 }

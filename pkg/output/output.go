@@ -16,6 +16,12 @@ var (
 	format = "json"
 	stdout io.Writer = os.Stdout
 	stderr io.Writer = os.Stderr
+
+	// reported tracks whether Error has already written to stderr this
+	// invocation. The Execute wrapper in cmd/root.go checks this to avoid
+	// double-printing: cobra parse errors never call Error, so reported stays
+	// false for them and Execute can safely print the raw error itself.
+	reported bool
 )
 
 func SetFormat(f string) {
@@ -32,6 +38,7 @@ func GetFormat() string { return format }
 
 // SetWriters overrides stdout/stderr for output capture (used by MCP server).
 // Pass nil to reset to os.Stdout/os.Stderr.
+// Resets reported so each in-process MCP invocation starts clean.
 func SetWriters(out, err io.Writer) {
 	if out != nil {
 		stdout = out
@@ -43,6 +50,7 @@ func SetWriters(out, err io.Writer) {
 	} else {
 		stderr = os.Stderr
 	}
+	reported = false
 }
 
 // Result outputs data in the configured format.
@@ -67,7 +75,8 @@ func Result(data any) {
 	}
 }
 
-// Error outputs a structured error.
+// Error outputs a structured error and marks the invocation as reported so
+// the Execute wrapper does not also print the raw cobra error.
 func Error(code string, message string, status int) {
 	e := map[string]any{
 		"error":   true,
@@ -77,7 +86,11 @@ func Error(code string, message string, status int) {
 	}
 	b, _ := json.MarshalIndent(e, "", "  ")
 	fmt.Fprintln(stderr, string(b))
+	reported = true
 }
+
+// Reported reports whether Error has been called this invocation.
+func Reported() bool { return reported }
 
 // printTable handles any data by marshal/unmarshal to normalize types.
 func printTable(data any) {
