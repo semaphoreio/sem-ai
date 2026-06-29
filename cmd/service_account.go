@@ -108,6 +108,10 @@ var serviceAccountUpdateCmd = &cobra.Command{
 		if !config.IsConfigured() {
 			return fmt.Errorf("not configured — run 'sem-ai connect' first")
 		}
+		if saUpdateNameFlag == "" && saUpdateDescFlag == "" {
+			return fmt.Errorf("nothing to update — provide --name and/or --description")
+		}
+		c := client.New()
 		body := map[string]string{}
 		if saUpdateNameFlag != "" {
 			body["name"] = saUpdateNameFlag
@@ -115,8 +119,26 @@ var serviceAccountUpdateCmd = &cobra.Command{
 		if saUpdateDescFlag != "" {
 			body["description"] = saUpdateDescFlag
 		}
+		// The API treats update as a full replace and rejects a blank name. When
+		// --name is omitted (e.g. a description-only update), preserve the current
+		// name so it isn't cleared.
+		if _, ok := body["name"]; !ok {
+			cur, err := c.Get("service_accounts", args[0])
+			if err != nil {
+				output.Error("api_error", err.Error(), 1)
+				return err
+			}
+			if cur.StatusCode != 200 {
+				output.Error("api_error", fmt.Sprintf("HTTP %d: %s", cur.StatusCode, string(cur.Body)), cur.StatusCode)
+				return fmt.Errorf("API returned %d", cur.StatusCode)
+			}
+			var existing struct {
+				Name string `json:"name"`
+			}
+			json.Unmarshal(cur.Body, &existing)
+			body["name"] = existing.Name
+		}
 		bodyBytes, _ := json.Marshal(body)
-		c := client.New()
 		resp, err := c.Patch("service_accounts", args[0], bodyBytes)
 		if err != nil {
 			output.Error("api_error", err.Error(), 1)
