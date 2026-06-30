@@ -3,6 +3,7 @@ package cmd
 import (
 	"encoding/json"
 	"fmt"
+	"net/url"
 	"strings"
 
 	"github.com/semaphoreio/sem-ai/pkg/client"
@@ -22,15 +23,21 @@ var orgMemberCmd = &cobra.Command{
 }
 
 var orgMemberListCmd = &cobra.Command{
-	Use:     "list",
-	Short:   "List organization members",
-	Example: `  sem-ai org member list`,
+	Use:   "list",
+	Short: "List organization members",
+	Example: `  sem-ai org member list
+  sem-ai org member list --type service_account
+  sem-ai org member list --type group`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		if !config.IsConfigured() {
 			return fmt.Errorf("not configured — run 'sem-ai connect' first")
 		}
 		c := client.New()
-		resp, err := c.List("members")
+		params := url.Values{}
+		if memberTypeFlag != "" {
+			params.Set("member_type", memberTypeFlag)
+		}
+		resp, err := c.ListWithParams("members", params)
 		if err != nil {
 			output.Error("api_error", err.Error(), 1)
 			return err
@@ -137,9 +144,9 @@ var orgRoleCreateCmd = &cobra.Command{
 }
 
 var orgRoleUpdateCmd = &cobra.Command{
-	Use:   "update <id>",
-	Short: "Update a custom role",
-	Args:  cobra.ExactArgs(1),
+	Use:     "update <id>",
+	Short:   "Update a custom role",
+	Args:    cobra.ExactArgs(1),
 	Example: `  sem-ai org role update <role-id> --permissions "project.view,project.job.rerun"`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		if !config.IsConfigured() {
@@ -254,7 +261,6 @@ var memberRetractRoleCmd = &cobra.Command{
 	},
 }
 
-
 var (
 	roleDescFlag              string
 	roleScopeFlag             string
@@ -262,6 +268,7 @@ var (
 	roleUpdateNameFlag        string
 	roleUpdateDescFlag        string
 	roleUpdatePermissionsFlag string
+	memberTypeFlag            string
 )
 
 func splitCommaList(s string) []string {
@@ -287,6 +294,7 @@ func init() {
 	orgRoleUpdateCmd.Flags().StringVar(&roleUpdateDescFlag, "description", "", "new role description")
 	orgRoleUpdateCmd.Flags().StringVar(&roleUpdatePermissionsFlag, "permissions", "", "comma-separated permissions")
 
+	orgMemberListCmd.Flags().StringVar(&memberTypeFlag, "type", "", "filter by member type: user|service_account|group (default user)")
 	orgMemberCmd.AddCommand(orgMemberListCmd)
 	orgRoleCmd.AddCommand(orgRoleListCmd)
 	orgRoleCmd.AddCommand(orgRoleShowCmd)
