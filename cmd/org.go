@@ -262,6 +262,7 @@ var memberRemoveCmd = &cobra.Command{
 var memberAddCmd = &cobra.Command{
 	Use:   "add",
 	Short: "Invite a person to the organization by SCM handle",
+	Args:  cobra.NoArgs,
 	Example: `  sem-ai org member add --provider github --handle octocat
   sem-ai org member add --provider github --handle octocat --role <role-id> --name "Octo Cat" --email octo@example.com
   sem-ai org member add --provider bitbucket --handle jdoe --uid 557058:1a2b3c`,
