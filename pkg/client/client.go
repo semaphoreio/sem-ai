@@ -197,6 +197,12 @@ func (c *Client) Post(kind string, body []byte) (*Response, error) {
 	return c.doWithRetry("POST", u, body)
 }
 
+// Put sends a PUT request.
+func (c *Client) Put(path string, body []byte) (*Response, error) {
+	u := fmt.Sprintf("https://%s/api/%s/%s", c.host, c.apiVersion, path)
+	return c.doWithRetry("PUT", u, body)
+}
+
 // PostAction sends POST to /api/{version}/{kind}/{id}/{action}
 func (c *Client) PostAction(kind, id, action string, body []byte) (*Response, error) {
 	u := fmt.Sprintf("https://%s/api/%s/%s/%s/%s", c.host, c.apiVersion, kind, id, action)
