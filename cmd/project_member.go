@@ -47,11 +47,11 @@ var projectMemberListCmd = &cobra.Command{
 	},
 }
 
-var projectMemberAssignRoleCmd = &cobra.Command{
-	Use:   "assign-role <project> <subject-id> <role-id>",
-	Short: "Assign a project-level role to a member",
+var projectMemberSetRoleCmd = &cobra.Command{
+	Use:   "set-role <project> <subject-id> <role-id>",
+	Short: "Set a project-level role for a member",
 	Args:  cobra.ExactArgs(3),
-	Example: `  sem-ai project member assign-role my-project <user-id> <role-id>`,
+	Example: `  sem-ai project member set-role my-project <user-id> <role-id>`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		if !config.IsConfigured() {
 			return fmt.Errorf("not configured — run 'sem-ai connect' first")
@@ -64,8 +64,7 @@ var projectMemberAssignRoleCmd = &cobra.Command{
 		body := map[string]string{"role_id": args[2]}
 		bodyBytes, _ := json.Marshal(body)
 		c := client.New()
-		u := fmt.Sprintf("projects/%s/members/%s/roles", projectID, args[1])
-		resp, err := c.Post(u, bodyBytes)
+		resp, err := c.Put("projects/"+projectID+"/members/"+args[1]+"/role", bodyBytes)
 		if err != nil {
 			output.Error("api_error", err.Error(), 1)
 			return err
@@ -81,11 +80,11 @@ var projectMemberAssignRoleCmd = &cobra.Command{
 	},
 }
 
-var projectMemberRetractRoleCmd = &cobra.Command{
-	Use:   "retract-role <project> <subject-id>",
+var projectMemberRemoveCmd = &cobra.Command{
+	Use:   "remove <project> <subject-id>",
 	Short: "Remove project-level role from a member",
 	Args:  cobra.ExactArgs(2),
-	Example: `  sem-ai project member retract-role my-project <user-id>`,
+	Example: `  sem-ai project member remove my-project <user-id>`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		if !config.IsConfigured() {
 			return fmt.Errorf("not configured — run 'sem-ai connect' first")
@@ -96,7 +95,7 @@ var projectMemberRetractRoleCmd = &cobra.Command{
 			return err
 		}
 		c := client.New()
-		u := fmt.Sprintf("projects/%s/members/%s/roles", projectID, args[1])
+		u := fmt.Sprintf("projects/%s/members/%s/role", projectID, args[1])
 		resp, err := c.DeletePath(u)
 		if err != nil {
 			output.Error("api_error", err.Error(), 1)
@@ -115,7 +114,7 @@ var projectMemberRetractRoleCmd = &cobra.Command{
 
 func init() {
 	projectMemberCmd.AddCommand(projectMemberListCmd)
-	projectMemberCmd.AddCommand(projectMemberAssignRoleCmd)
-	projectMemberCmd.AddCommand(projectMemberRetractRoleCmd)
+	projectMemberCmd.AddCommand(projectMemberSetRoleCmd)
+	projectMemberCmd.AddCommand(projectMemberRemoveCmd)
 	projectCmd.AddCommand(projectMemberCmd)
 }

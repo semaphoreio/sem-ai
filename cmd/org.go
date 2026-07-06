@@ -204,12 +204,12 @@ var orgRoleDeleteCmd = &cobra.Command{
 	},
 }
 
-var memberAssignRoleCmd = &cobra.Command{
-	Use:   "assign-role <subject-id> <role-id>",
-	Short: "Assign an org-level role to a member or service account",
+var memberSetRoleCmd = &cobra.Command{
+	Use:   "set-role <subject-id> <role-id>",
+	Short: "Set an org-level role for a member or service account",
 	Args:  cobra.ExactArgs(2),
-	Example: `  sem-ai org member assign-role <user-id> <role-id>
-  sem-ai org member assign-role <service-account-id> <role-id>`,
+	Example: `  sem-ai org member set-role <user-id> <role-id>
+  sem-ai org member set-role <service-account-id> <role-id>`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		if !config.IsConfigured() {
 			return fmt.Errorf("not configured — run 'sem-ai connect' first")
@@ -217,8 +217,7 @@ var memberAssignRoleCmd = &cobra.Command{
 		body := map[string]string{"role_id": args[1]}
 		bodyBytes, _ := json.Marshal(body)
 		c := client.New()
-		u := fmt.Sprintf("members/%s/roles", args[0])
-		resp, err := c.Post(u, bodyBytes)
+		resp, err := c.Put("members/"+args[0]+"/role", bodyBytes)
 		if err != nil {
 			output.Error("api_error", err.Error(), 1)
 			return err
@@ -234,23 +233,70 @@ var memberAssignRoleCmd = &cobra.Command{
 	},
 }
 
-var memberRetractRoleCmd = &cobra.Command{
-	Use:     "retract-role <subject-id>",
-	Short:   "Remove org-level role from a member or service account",
+var memberRemoveCmd = &cobra.Command{
+	Use:     "remove <subject-id>",
+	Short:   "Remove a member or service account from the organization",
 	Args:    cobra.ExactArgs(1),
-	Example: `  sem-ai org member retract-role <user-id>`,
+	Example: `  sem-ai org member remove <user-id>`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		if !config.IsConfigured() {
 			return fmt.Errorf("not configured — run 'sem-ai connect' first")
 		}
 		c := client.New()
-		u := fmt.Sprintf("members/%s/roles", args[0])
-		resp, err := c.DeletePath(u)
+		resp, err := c.Delete("members", args[0])
 		if err != nil {
 			output.Error("api_error", err.Error(), 1)
 			return err
 		}
 		if resp.StatusCode != 200 {
+			output.Error("api_error", fmt.Sprintf("HTTP %d: %s", resp.StatusCode, string(resp.Body)), resp.StatusCode)
+			return fmt.Errorf("API returned %d", resp.StatusCode)
+		}
+		var result any
+		json.Unmarshal(resp.Body, &result)
+		output.Result(result)
+		return nil
+	},
+}
+
+var memberAddCmd = &cobra.Command{
+	Use:   "add",
+	Short: "Invite a person to the organization by SCM handle",
+	Args:  cobra.NoArgs,
+	Example: `  sem-ai org member add --provider github --handle octocat
+  sem-ai org member add --provider github --handle octocat --role <role-id> --name "Octo Cat" --email octo@example.com
+  sem-ai org member add --provider bitbucket --handle jdoe --uid 557058:1a2b3c`,
+	RunE: func(cmd *cobra.Command, args []string) error {
+		if !config.IsConfigured() {
+			return fmt.Errorf("not configured — run 'sem-ai connect' first")
+		}
+		body := map[string]string{}
+		if memberAddProviderFlag != "" {
+			body["provider"] = memberAddProviderFlag
+		}
+		if memberAddHandleFlag != "" {
+			body["handle"] = memberAddHandleFlag
+		}
+		if memberAddUIDFlag != "" {
+			body["uid"] = memberAddUIDFlag
+		}
+		if memberAddRoleFlag != "" {
+			body["role_id"] = memberAddRoleFlag
+		}
+		if memberAddNameFlag != "" {
+			body["name"] = memberAddNameFlag
+		}
+		if memberAddEmailFlag != "" {
+			body["email"] = memberAddEmailFlag
+		}
+		bodyBytes, _ := json.Marshal(body)
+		c := client.New()
+		resp, err := c.Post("members", bodyBytes)
+		if err != nil {
+			output.Error("api_error", err.Error(), 1)
+			return err
+		}
+		if resp.StatusCode != 200 && resp.StatusCode != 201 {
 			output.Error("api_error", fmt.Sprintf("HTTP %d: %s", resp.StatusCode, string(resp.Body)), resp.StatusCode)
 			return fmt.Errorf("API returned %d", resp.StatusCode)
 		}
@@ -269,6 +315,12 @@ var (
 	roleUpdateDescFlag        string
 	roleUpdatePermissionsFlag string
 	memberTypeFlag            string
+	memberAddProviderFlag     string
+	memberAddHandleFlag       string
+	memberAddUIDFlag          string
+	memberAddRoleFlag         string
+	memberAddNameFlag         string
+	memberAddEmailFlag        string
 )
 
 func splitCommaList(s string) []string {
@@ -295,14 +347,25 @@ func init() {
 	orgRoleUpdateCmd.Flags().StringVar(&roleUpdatePermissionsFlag, "permissions", "", "comma-separated permissions")
 
 	orgMemberListCmd.Flags().StringVar(&memberTypeFlag, "type", "", "filter by member type: user|service_account|group (default user)")
+
+	memberAddCmd.Flags().StringVar(&memberAddHandleFlag, "handle", "", "SCM login/handle of the person to invite (required)")
+	memberAddCmd.Flags().StringVar(&memberAddProviderFlag, "provider", "", "SCM provider: github|bitbucket|gitlab (required)")
+	memberAddCmd.Flags().StringVar(&memberAddUIDFlag, "uid", "", "SCM user id (required for bitbucket)")
+	memberAddCmd.Flags().StringVar(&memberAddRoleFlag, "role", "", "org role id to assign")
+	memberAddCmd.Flags().StringVar(&memberAddNameFlag, "name", "", "display name")
+	memberAddCmd.Flags().StringVar(&memberAddEmailFlag, "email", "", "email address")
+	_ = memberAddCmd.MarkFlagRequired("handle")
+	_ = memberAddCmd.MarkFlagRequired("provider")
+
 	orgMemberCmd.AddCommand(orgMemberListCmd)
 	orgRoleCmd.AddCommand(orgRoleListCmd)
 	orgRoleCmd.AddCommand(orgRoleShowCmd)
 	orgRoleCmd.AddCommand(orgRoleCreateCmd)
 	orgRoleCmd.AddCommand(orgRoleUpdateCmd)
 	orgRoleCmd.AddCommand(orgRoleDeleteCmd)
-	orgMemberCmd.AddCommand(memberAssignRoleCmd)
-	orgMemberCmd.AddCommand(memberRetractRoleCmd)
+	orgMemberCmd.AddCommand(memberSetRoleCmd)
+	orgMemberCmd.AddCommand(memberRemoveCmd)
+	orgMemberCmd.AddCommand(memberAddCmd)
 	orgCmd.AddCommand(orgMemberCmd)
 	orgCmd.AddCommand(orgRoleCmd)
 	rootCmd.AddCommand(orgCmd)
