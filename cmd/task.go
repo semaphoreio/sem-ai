@@ -318,9 +318,9 @@ var (
 )
 
 var taskCreateCmd = &cobra.Command{
-	Use:     "create <name>",
-	Short:   "Create a scheduled task (periodic job)",
-	Args:    cobra.ExactArgs(1),
+	Use:   "create <name>",
+	Short: "Create a scheduled task (periodic job)",
+	Args:  cobra.ExactArgs(1),
 	Example: `  sem-ai task create nightly-tests --project my-app --branch main --file .semaphore/nightly.yml --cron "0 2 * * *"
   sem-ai task create deploy-env --branch main --file .semaphore/deploy.yml --param-def ENVIRONMENT=staging --param-def VERSION`,
 	RunE: func(cmd *cobra.Command, args []string) error {
