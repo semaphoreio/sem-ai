@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"bytes"
 	"context"
 	"crypto/rand"
 	"crypto/sha256"
@@ -23,9 +24,13 @@ import (
 	"github.com/spf13/viper"
 )
 
-// `login` obtains a Semaphore API token through guard's CLI-auth endpoints and
-// stores it in the same config slot as `connect`. It supports the two flows the
-// guard side exposes (see guard/lib/guard/cli_auth.ex):
+// `signup` creates a NEW Semaphore account. It obtains a fresh API token through
+// guard's CLI-auth endpoints and stores it in the same config slot as `connect`.
+// It is a one-time onboarding command: existing users should use `sem-ai connect`
+// with a token from their Semaphore settings (guard rejects an already-registered
+// account with the token_exists error, whose message points there).
+//
+// It supports the two flows the guard side exposes (see guard/lib/guard/cli_auth.ex):
 //
 //   - Loopback + PKCE (RFC 8252) — used when a browser is available. The CLI
 //     binds a localhost server, opens the browser to guard's /cli/signup with a
@@ -39,6 +44,13 @@ import (
 // Both token responses are {"token": "...", "host": null}: guard returns a null
 // host (a fresh signup has no org host yet), so the saved host comes from the
 // positional <host> argument, exactly like `connect`.
+//
+// With --org, after the account+token are saved, signup also creates a first
+// organization via POST <host>/api/v1alpha/organizations (an account-level
+// endpoint served from the me.<domain> host, authenticated with the new account
+// token). The create response returns only {organization_id, name, username} —
+// NOT the org's host — so the org's context host must be supplied explicitly with
+// --org-host, and that context is then made active.
 
 const (
 	loginCallbackPath = "/callback"
@@ -56,6 +68,8 @@ const (
 var (
 	loginForceDevice bool
 	loginIDHost      string
+	signupOrgName    string
+	signupOrgHost    string
 )
 
 // errBrowserUnavailable signals that the browser could not be opened, so the
@@ -77,21 +91,39 @@ var isHeadless = func(force bool) bool {
 	return false
 }
 
-var loginCmd = &cobra.Command{
-	Use:   "login <host>",
-	Short: "Log in to Semaphore and save an API token",
-	Long: `Log in to Semaphore and store an API token for <host>.
+var signupCmd = &cobra.Command{
+	Use:   "signup <host>",
+	Short: "Create a new Semaphore account and save an API token",
+	Long: `Create a NEW Semaphore account and store an API token for <host>.
+
+signup is a one-time onboarding command. If you already have a Semaphore
+account, use 'sem-ai connect <host> <token>' with a token from your Semaphore
+settings instead — signup will refuse an account that already exists.
 
 Prefers a browser-based loopback + PKCE flow. When no browser is available
 (SSH session, no display, or --headless), it falls back to the device
 authorization grant: it prints a code and URL for you to open elsewhere and
-polls until you approve.`,
+polls until you approve.
+
+With --org, signup also creates a first organization after the account is
+ready. The account token authenticates the create call against the account-level
+endpoint on <host>. The create API does not return the new org's host, so pass
+--org-host with the org's host; that context is then made active.`,
 	Args: cobra.ExactArgs(1),
-	Example: `  sem-ai login myorg.semaphoreci.com
-  sem-ai login myorg.semaphoreci.com --headless
-  sem-ai login myorg.semaphoreci.com --id-host id.semaphoreci.com`,
+	Example: `  sem-ai signup me.semaphoreci.com
+  sem-ai signup me.semaphoreci.com --headless
+  sem-ai signup me.semaphoreci.com --id-host id.semaphoreci.com
+  sem-ai signup me.semaphoreci.com --org myorg --org-host myorg.semaphoreci.com`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		host := args[0]
+
+		// Validate the org flag combo before touching the network, so a bad
+		// invocation fails fast without creating a half-finished account.
+		if signupOrgName != "" && signupOrgHost == "" {
+			err := errors.New("--org requires --org-host: the create API does not return the new org's host, so it must be given explicitly")
+			output.Error("signup_error", err.Error(), 1)
+			return err
+		}
 
 		// The CLI-auth endpoints (/cli/device, /cli/token, /cli/signup) live on
 		// guard. Default to <host>; --id-host overrides for deployments where
@@ -119,7 +151,7 @@ polls until you approve.`,
 			}
 		}
 		if err != nil {
-			output.Error("login_error", err.Error(), 1)
+			output.Error("signup_error", err.Error(), 1)
 			return err
 		}
 
@@ -127,7 +159,22 @@ polls until you approve.`,
 		if tok.Host != "" {
 			saveHost = tok.Host
 		}
-		return saveLoginContext(saveHost, tok.Token)
+
+		// No org requested: save the account context and report it.
+		if signupOrgName == "" {
+			return saveLoginContext(saveHost, tok.Token)
+		}
+
+		// Optional first-org creation. Save the account context silently first,
+		// then create the org and let createFirstOrg report the final, activated
+		// org context. If org creation fails we surface a clear error but do NOT
+		// roll the account context back — the account exists and the token works.
+		if _, err := writeContext(saveHost, tok.Token, true); err != nil {
+			output.Error("config_error", fmt.Sprintf("failed to write config: %s", err), 1)
+			return err
+		}
+		orgc := &http.Client{Timeout: cliAuthHTTPTimeout}
+		return createFirstOrg(orgc, "https://"+host, tok.Token, signupOrgName, signupOrgHost, w)
 	},
 }
 
@@ -411,28 +458,123 @@ func finishPage(w http.ResponseWriter, ok bool, detail string) {
 
 // ── shared helpers ───────────────────────────────────────────────────────────
 
-// saveLoginContext writes the token/host into ~/.sem.yaml — same shape as
-// `connect` — and enforces 0600 permissions on the config file.
-func saveLoginContext(host, token string) error {
+// writeContext persists a token/host into ~/.sem.yaml — same shape as `connect`
+// — optionally activating it, and enforces 0600 permissions on the config file
+// (it holds a secret). It returns the context name it wrote to.
+func writeContext(host, token string, active bool) (string, error) {
 	name := strings.ReplaceAll(host, ".", "_")
-	viper.Set("active-context", name)
+	if active {
+		viper.Set("active-context", name)
+	}
 	viper.Set(fmt.Sprintf("contexts.%s.auth.token", name), token)
 	viper.Set(fmt.Sprintf("contexts.%s.host", name), host)
 	if err := viper.WriteConfig(); err != nil {
-		output.Error("config_error", fmt.Sprintf("failed to write config: %s", err), 1)
-		return err
+		return name, err
 	}
-	// The config holds a secret; keep it owner-only regardless of viper's default.
 	if path := viper.ConfigFileUsed(); path != "" {
 		_ = os.Chmod(path, 0600)
 	}
+	return name, nil
+}
 
+// saveLoginContext writes the account token/host and reports the result. Used on
+// the no-org path (and by tests); the --org path saves silently and lets
+// createFirstOrg report the final, activated org context.
+func saveLoginContext(host, token string) error {
+	name, err := writeContext(host, token, true)
+	if err != nil {
+		output.Error("config_error", fmt.Sprintf("failed to write config: %s", err), 1)
+		return err
+	}
 	output.Result(map[string]string{
-		"status":  "logged_in",
+		"status":  "signed_up",
 		"host":    host,
 		"context": name,
 	})
 	return nil
+}
+
+// orgCreateResp mirrors the account-level POST /api/v1alpha/organizations
+// response (see public-api/v1alpha .../organizations/create.ex format_org). Note
+// it carries NO host/subdomain — only the org's identity — which is why the
+// org's context host must be supplied out of band via --org-host.
+type orgCreateResp struct {
+	OrganizationID string `json:"organization_id"`
+	Name           string `json:"name"`
+	Username       string `json:"username"`
+}
+
+// createFirstOrg creates an organization on the account-level endpoint served
+// from the me.<domain> host (baseURL), authenticated with the freshly minted
+// account token. On success it saves the org as a new context (host = orgHost,
+// same token) and makes it active.
+//
+// The account context saved by signup is left untouched on failure — the account
+// already exists, so we report the org-create error without rolling it back.
+func createFirstOrg(httpc *http.Client, baseURL, token, name, orgHost string, w io.Writer) error {
+	payload, err := json.Marshal(map[string]string{"username": name, "name": name})
+	if err != nil {
+		output.Error("signup_error", err.Error(), 1)
+		return err
+	}
+	req, err := http.NewRequest("POST", baseURL+"/api/v1alpha/organizations", bytes.NewReader(payload))
+	if err != nil {
+		output.Error("signup_error", err.Error(), 1)
+		return err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Token "+token)
+	req.Header.Set("User-Agent", client.UserAgent)
+
+	resp, err := httpc.Do(req)
+	if err != nil {
+		err = fmt.Errorf("account created, but creating org %q failed: %w", name, err)
+		output.Error("org_create_error", err.Error(), 1)
+		return err
+	}
+	defer resp.Body.Close()
+	body, _ := io.ReadAll(resp.Body)
+
+	if resp.StatusCode != 200 {
+		// Error bodies are a JSON-encoded string (Common.respond); unwrap it for
+		// a clean message, falling back to the raw body.
+		msg := strings.TrimSpace(string(body))
+		var s string
+		if json.Unmarshal(body, &s) == nil && s != "" {
+			msg = s
+		}
+		err := fmt.Errorf("account created and active as %q, but creating org %q failed (HTTP %d): %s", signupOrgHostContextName(orgHost), name, resp.StatusCode, msg)
+		output.Error("org_create_error", err.Error(), resp.StatusCode)
+		return err
+	}
+
+	var org orgCreateResp
+	if err := json.Unmarshal(body, &org); err != nil {
+		err = fmt.Errorf("account created, but org create response was invalid: %w", err)
+		output.Error("org_create_error", err.Error(), 1)
+		return err
+	}
+
+	// Add the org as a new context (reusing the account token) and activate it.
+	ctxName, err := writeContext(orgHost, token, true)
+	if err != nil {
+		output.Error("config_error", fmt.Sprintf("org created, but saving its context failed: %s", err), 1)
+		return err
+	}
+
+	output.Result(map[string]string{
+		"status":          "signed_up",
+		"host":            orgHost,
+		"context":         ctxName,
+		"organization_id": org.OrganizationID,
+		"organization":    org.Username,
+	})
+	return nil
+}
+
+// signupOrgHostContextName returns the context name a host maps to.
+func signupOrgHostContextName(host string) string {
+	return strings.ReplaceAll(host, ".", "_")
 }
 
 func randToken(nBytes int) string {
@@ -447,8 +589,10 @@ func s256Challenge(verifier string) string {
 }
 
 func init() {
-	loginCmd.Flags().BoolVar(&loginForceDevice, "headless", false, "force the device authorization flow (no browser)")
-	loginCmd.Flags().BoolVar(&loginForceDevice, "device", false, "alias for --headless")
-	loginCmd.Flags().StringVar(&loginIDHost, "id-host", "", "host serving the CLI-auth endpoints (defaults to <host>)")
-	rootCmd.AddCommand(loginCmd)
+	signupCmd.Flags().BoolVar(&loginForceDevice, "headless", false, "force the device authorization flow (no browser)")
+	signupCmd.Flags().BoolVar(&loginForceDevice, "device", false, "alias for --headless")
+	signupCmd.Flags().StringVar(&loginIDHost, "id-host", "", "host serving the CLI-auth endpoints (defaults to <host>)")
+	signupCmd.Flags().StringVar(&signupOrgName, "org", "", "also create a first organization with this name after signup")
+	signupCmd.Flags().StringVar(&signupOrgHost, "org-host", "", "host for the --org organization's context (the create API does not return it)")
+	rootCmd.AddCommand(signupCmd)
 }
