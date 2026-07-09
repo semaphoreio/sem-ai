@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"encoding/json"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -227,5 +228,165 @@ func TestIsHeadless(t *testing.T) {
 	t.Setenv("SSH_CONNECTION", "10.0.0.1 22 10.0.0.2 2222")
 	if !isHeadless(false) {
 		t.Error("isHeadless should detect an SSH session")
+	}
+}
+
+// ── signup command wiring ────────────────────────────────────────────────────
+
+func TestSignupCmd_UseAndArgs(t *testing.T) {
+	if signupCmd.Use != "signup <host>" {
+		t.Errorf("Use = %q, want \"signup <host>\"", signupCmd.Use)
+	}
+	// Registered under root.
+	found := false
+	for _, c := range rootCmd.Commands() {
+		if c.Name() == "signup" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Error("signup command is not registered on rootCmd")
+	}
+	// Exactly one positional arg.
+	if err := signupCmd.Args(signupCmd, []string{}); err == nil {
+		t.Error("expected error with zero args")
+	}
+	if err := signupCmd.Args(signupCmd, []string{"me.example.com"}); err != nil {
+		t.Errorf("unexpected error with one arg: %v", err)
+	}
+	if err := signupCmd.Args(signupCmd, []string{"a", "b"}); err == nil {
+		t.Error("expected error with two args")
+	}
+}
+
+// TestSignup_OrgWithoutOrgHost checks the fast fail-before-network guard: --org
+// without --org-host must error immediately, before any auth flow runs.
+func TestSignup_OrgWithoutOrgHost(t *testing.T) {
+	output.SetWriters(io.Discard, io.Discard)
+	t.Cleanup(func() { output.SetWriters(nil, nil) })
+
+	signupOrgName = "myorg"
+	signupOrgHost = ""
+	t.Cleanup(func() { signupOrgName, signupOrgHost = "", "" })
+
+	err := signupCmd.RunE(signupCmd, []string{"me.example.com"})
+	if err == nil {
+		t.Fatal("expected error when --org is set without --org-host")
+	}
+	if !strings.Contains(err.Error(), "--org-host") {
+		t.Errorf("error = %q, want it to mention --org-host", err.Error())
+	}
+}
+
+// ── first-org creation (--org) ───────────────────────────────────────────────
+
+// newOrgServer serves POST /api/v1alpha/organizations with a fixed status/body
+// and records the last request's auth header and decoded JSON body.
+func newOrgServer(t *testing.T, status int, body string) (*httptest.Server, *orgRequestCapture) {
+	t.Helper()
+	cap := &orgRequestCapture{}
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/v1alpha/organizations" {
+			t.Errorf("unexpected path %s", r.URL.Path)
+			w.WriteHeader(404)
+			return
+		}
+		if r.Method != "POST" {
+			t.Errorf("method = %s, want POST", r.Method)
+		}
+		cap.auth = r.Header.Get("Authorization")
+		b, _ := io.ReadAll(r.Body)
+		_ = json.Unmarshal(b, &cap.body)
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(status)
+		_, _ = io.WriteString(w, body)
+	}))
+	t.Cleanup(srv.Close)
+	return srv, cap
+}
+
+type orgRequestCapture struct {
+	auth string
+	body map[string]string
+}
+
+// setupConfig points viper at a fresh temp config file and silences output.
+func setupConfig(t *testing.T) {
+	t.Helper()
+	dir := t.TempDir()
+	cfgPath := filepath.Join(dir, ".sem.yaml")
+	if err := os.WriteFile(cfgPath, []byte("{}\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	viper.Reset()
+	t.Cleanup(viper.Reset)
+	viper.SetConfigFile(cfgPath)
+	viper.SetConfigType("yaml")
+	if err := viper.ReadInConfig(); err != nil {
+		t.Fatalf("ReadInConfig: %v", err)
+	}
+	output.SetWriters(io.Discard, io.Discard)
+	t.Cleanup(func() { output.SetWriters(nil, nil) })
+}
+
+func TestCreateFirstOrg_Success(t *testing.T) {
+	setupConfig(t)
+	srv, cap := newOrgServer(t, 200, `{"organization_id":"org-123","name":"myorg","username":"myorg"}`)
+
+	err := createFirstOrg(srv.Client(), srv.URL, "acct-token", "myorg", "myorg.semaphoreci.com", io.Discard)
+	if err != nil {
+		t.Fatalf("createFirstOrg: %v", err)
+	}
+
+	// Request shape: token auth + username in body.
+	if cap.auth != "Token acct-token" {
+		t.Errorf("Authorization = %q, want \"Token acct-token\"", cap.auth)
+	}
+	if cap.body["username"] != "myorg" {
+		t.Errorf("request username = %q, want myorg", cap.body["username"])
+	}
+
+	// New org context is stored and active.
+	if got := viper.GetString("active-context"); got != "myorg_semaphoreci_com" {
+		t.Errorf("active-context = %q, want myorg_semaphoreci_com", got)
+	}
+	if got := viper.GetString("contexts.myorg_semaphoreci_com.auth.token"); got != "acct-token" {
+		t.Errorf("org token = %q, want acct-token", got)
+	}
+	if got := viper.GetString("contexts.myorg_semaphoreci_com.host"); got != "myorg.semaphoreci.com" {
+		t.Errorf("org host = %q, want myorg.semaphoreci.com", got)
+	}
+}
+
+// TestCreateFirstOrg_FailurePreservesAccount confirms a create failure is
+// surfaced clearly and does NOT roll back the already-saved account context.
+func TestCreateFirstOrg_FailurePreservesAccount(t *testing.T) {
+	setupConfig(t)
+
+	// Pre-existing account context, active — as signup would have saved it.
+	if _, err := writeContext("me.example.com", "acct-token", true); err != nil {
+		t.Fatal(err)
+	}
+
+	srv, _ := newOrgServer(t, 422, `"Organization name is already taken"`)
+
+	err := createFirstOrg(srv.Client(), srv.URL, "acct-token", "myorg", "myorg.semaphoreci.com", io.Discard)
+	if err == nil {
+		t.Fatal("expected error on org-create failure")
+	}
+	if !strings.Contains(err.Error(), "already taken") {
+		t.Errorf("error = %q, want it to surface the server message", err.Error())
+	}
+
+	// Account context is intact and still active; org context was not created.
+	if got := viper.GetString("active-context"); got != "me_example_com" {
+		t.Errorf("active-context = %q, want me_example_com (account preserved)", got)
+	}
+	if got := viper.GetString("contexts.me_example_com.auth.token"); got != "acct-token" {
+		t.Errorf("account token = %q, want acct-token", got)
+	}
+	if got := viper.GetString("contexts.myorg_semaphoreci_com.host"); got != "" {
+		t.Errorf("org context should not exist, got host = %q", got)
 	}
 }
