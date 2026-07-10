@@ -14,6 +14,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"regexp"
 	"runtime"
 	"strings"
 	"time"
@@ -54,7 +55,6 @@ import (
 
 const (
 	loginCallbackPath = "/callback"
-	loopbackTimeout   = 3 * time.Minute
 
 	deviceGrantType   = "urn:ietf:params:oauth:grant-type:device_code"
 	authCodeGrantType = "authorization_code"
@@ -64,6 +64,18 @@ const (
 	cliAuthHTTPTimeout = 30 * time.Second
 	deviceDefaultTTL   = 900 // seconds; fallback if the server omits expires_in
 )
+
+// loopbackTimeout bounds how long runLoopbackFlow waits for the browser to
+// complete the redirect back to the loopback listener. It's a var (not a
+// const) so tests can shrink it instead of actually waiting.
+//
+// cmd.Start() succeeding (see openBrowser in open.go) does not mean a
+// browser actually came up — on a broken/headless opener the process can
+// spawn fine and never render anything. This timeout is the backstop for
+// that silent failure: on expiry we don't hard-fail, we return
+// errLoopbackTimedOut so the caller falls back to the device flow, same as
+// when opening the browser fails outright.
+var loopbackTimeout = 3 * time.Minute
 
 var (
 	loginForceDevice bool
@@ -75,6 +87,12 @@ var (
 // errBrowserUnavailable signals that the browser could not be opened, so the
 // caller should fall back to the device flow.
 var errBrowserUnavailable = errors.New("no browser available")
+
+// errLoopbackTimedOut signals that the loopback listener never received a
+// callback within loopbackTimeout. openBrowser's cmd.Start() succeeding is
+// not proof a browser actually came up, so this is treated the same as
+// errBrowserUnavailable: the caller falls back to the device flow.
+var errLoopbackTimedOut = errors.New("timed out waiting for browser sign-in")
 
 // isHeadless reports whether to skip the browser and use the device flow.
 // Declared as a var so tests can override it.
@@ -88,7 +106,41 @@ var isHeadless = func(force bool) bool {
 	if runtime.GOOS == "linux" && os.Getenv("DISPLAY") == "" && os.Getenv("WAYLAND_DISPLAY") == "" {
 		return true
 	}
+	// No interactive terminal (piped/redirected, run from a script,
+	// non-interactive CI) — there's no one to see the browser or complete a
+	// sign-in in it, so go straight to device flow rather than risk the
+	// loopback flow's silent-failure hang. Reuses the same TTY probe as the
+	// update-notice logic in version.go.
+	if !stderrIsTTY() {
+		return true
+	}
 	return false
+}
+
+// hostnameRe allowlists bare hostnames (RFC 1123 labels, dot-separated).
+// Deliberately excludes every character a scheme, userinfo, path, query,
+// fragment, or port would need (":", "/", "@", "?", "#", whitespace, ...),
+// so anything other than a plain hostname is rejected by construction rather
+// than by trying to enumerate bad patterns.
+var hostnameRe = regexp.MustCompile(`^[a-zA-Z0-9]([a-zA-Z0-9-]{0,62}[a-zA-Z0-9])?(\.[a-zA-Z0-9]([a-zA-Z0-9-]{0,62}[a-zA-Z0-9])?)*$`)
+
+// validateHost rejects anything that isn't a bare hostname. signup builds
+// URLs by concatenating "https://" with the <host> argument and the
+// --id-host/--org-host flags, so a value like "victim@evil.com" (userinfo),
+// "evil.com/x@real.com" (path), or "evil.com:8080" (port) could redirect
+// where the token or auth requests actually go. Fails fast, before any
+// network call.
+func validateHost(flagName, host string) error {
+	if host == "" {
+		return fmt.Errorf("%s must not be empty", flagName)
+	}
+	if len(host) > 253 {
+		return fmt.Errorf("%s %q is too long to be a hostname", flagName, host)
+	}
+	if !hostnameRe.MatchString(host) {
+		return fmt.Errorf("%s %q is not a valid hostname — expected a bare host like me.semaphoreci.com (no scheme, userinfo, path, port, or query)", flagName, host)
+	}
+	return nil
 }
 
 var signupCmd = &cobra.Command{
@@ -116,6 +168,26 @@ endpoint on <host>. The create API does not return the new org's host, so pass
   sem-ai signup me.semaphoreci.com --org myorg --org-host myorg.semaphoreci.com`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		host := args[0]
+
+		// Reject anything but a bare hostname before touching the network — a
+		// userinfo/scheme/path/port trick in <host>, --id-host, or --org-host
+		// could otherwise reroute where the token or auth requests go.
+		if err := validateHost("host", host); err != nil {
+			output.Error("signup_error", err.Error(), 1)
+			return err
+		}
+		if loginIDHost != "" {
+			if err := validateHost("--id-host", loginIDHost); err != nil {
+				output.Error("signup_error", err.Error(), 1)
+				return err
+			}
+		}
+		if signupOrgHost != "" {
+			if err := validateHost("--org-host", signupOrgHost); err != nil {
+				output.Error("signup_error", err.Error(), 1)
+				return err
+			}
+		}
 
 		// Validate the org flag combo before touching the network, so a bad
 		// invocation fails fast without creating a half-finished account.
@@ -145,8 +217,12 @@ endpoint on <host>. The create API does not return the new org's host, so pass
 			tok, err = runDeviceFlow(c, w, time.Sleep)
 		} else {
 			tok, err = runLoopbackFlow(cmd.Context(), c, w)
-			if errors.Is(err, errBrowserUnavailable) {
+			switch {
+			case errors.Is(err, errBrowserUnavailable):
 				fmt.Fprintln(w, "Could not open a browser; falling back to device authorization.")
+				tok, err = runDeviceFlow(c, w, time.Sleep)
+			case errors.Is(err, errLoopbackTimedOut):
+				fmt.Fprintln(w, "Browser sign-in did not complete in time; falling back to device authorization.")
 				tok, err = runDeviceFlow(c, w, time.Sleep)
 			}
 		}
@@ -411,7 +487,7 @@ func runLoopbackFlow(ctx context.Context, c *cliAuthClient, w io.Writer) (*token
 		}
 		return tok, nil
 	case <-time.After(loopbackTimeout):
-		return nil, fmt.Errorf("timed out waiting for browser sign-in")
+		return nil, errLoopbackTimedOut
 	case <-ctx.Done():
 		return nil, ctx.Err()
 	}

@@ -1,13 +1,17 @@
 package cmd
 
 import (
+	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -228,6 +232,241 @@ func TestIsHeadless(t *testing.T) {
 	t.Setenv("SSH_CONNECTION", "10.0.0.1 22 10.0.0.2 2222")
 	if !isHeadless(false) {
 		t.Error("isHeadless should detect an SSH session")
+	}
+}
+
+// TestIsHeadless_NoTTYFallsBackToDevice covers the "falls back when it
+// should" side of the no-TTY signal: a non-interactive stdin (piped, run
+// from a script, headless automation) means there's no one to complete a
+// browser sign-in, so signup should go straight to the device flow.
+func TestIsHeadless_NoTTYFallsBackToDevice(t *testing.T) {
+	t.Setenv("SSH_TTY", "")
+	t.Setenv("SSH_CONNECTION", "")
+	t.Setenv("DISPLAY", "not-empty")
+	t.Setenv("WAYLAND_DISPLAY", "")
+
+	orig := stderrIsTTY
+	stderrIsTTY = func() bool { return false }
+	t.Cleanup(func() { stderrIsTTY = orig })
+
+	if !isHeadless(false) {
+		t.Error("isHeadless should force the device flow when there's no interactive terminal")
+	}
+}
+
+// TestIsHeadless_InteractiveDesktopStaysOnLoopback covers the "works when it
+// should" side: a real interactive desktop session (TTY on stdin, no SSH, a
+// display) must not be routed to the device flow — the no-TTY signal must
+// not regress the working browser path.
+func TestIsHeadless_InteractiveDesktopStaysOnLoopback(t *testing.T) {
+	t.Setenv("SSH_TTY", "")
+	t.Setenv("SSH_CONNECTION", "")
+	t.Setenv("DISPLAY", "not-empty")
+	t.Setenv("WAYLAND_DISPLAY", "")
+
+	orig := stderrIsTTY
+	stderrIsTTY = func() bool { return true }
+	t.Cleanup(func() { stderrIsTTY = orig })
+
+	if isHeadless(false) {
+		t.Error("isHeadless should not force the device flow for an interactive desktop session")
+	}
+}
+
+// ── loopback flow: false-success and timeout fallback ───────────────────────
+
+// TestRunLoopbackFlow_BrowserUnavailable covers the existing fallback path: if
+// openBrowser itself fails (e.g. the opener exits nonzero, or the binary is
+// missing), runLoopbackFlow must report errBrowserUnavailable immediately.
+func TestRunLoopbackFlow_BrowserUnavailable(t *testing.T) {
+	origOpen := openBrowser
+	openBrowser = func(string) error { return errors.New("no handler for URL") }
+	t.Cleanup(func() { openBrowser = origOpen })
+
+	c := &cliAuthClient{baseURL: "https://id.example.com", http: &http.Client{}}
+	_, err := runLoopbackFlow(context.Background(), c, io.Discard)
+	if !errors.Is(err, errBrowserUnavailable) {
+		t.Fatalf("err = %v, want errBrowserUnavailable", err)
+	}
+}
+
+// TestRunLoopbackFlow_TimesOutFallsBackToDevice is the HIGH-3 regression
+// test: simulate a false success (openBrowser's cmd.Start() returns nil, but
+// no browser ever completes the redirect — the "$DISPLAY set but the opener
+// is broken" scenario) and verify runLoopbackFlow reports errLoopbackTimedOut
+// — so the caller in RunE falls back to device flow — instead of a bare,
+// unrecoverable error, and does so within the (shortened, for the test)
+// timeout rather than hanging.
+func TestRunLoopbackFlow_TimesOutFallsBackToDevice(t *testing.T) {
+	origOpen := openBrowser
+	openBrowser = func(string) error { return nil } // false success: never calls back
+	t.Cleanup(func() { openBrowser = origOpen })
+
+	origTimeout := loopbackTimeout
+	loopbackTimeout = 50 * time.Millisecond
+	t.Cleanup(func() { loopbackTimeout = origTimeout })
+
+	c := &cliAuthClient{baseURL: "https://id.example.com", http: &http.Client{}}
+	start := time.Now()
+	_, err := runLoopbackFlow(context.Background(), c, io.Discard)
+	if !errors.Is(err, errLoopbackTimedOut) {
+		t.Fatalf("err = %v, want errLoopbackTimedOut", err)
+	}
+	if elapsed := time.Since(start); elapsed > 2*time.Second {
+		t.Errorf("runLoopbackFlow took %v, want it to respect the shortened loopbackTimeout", elapsed)
+	}
+}
+
+// TestRunLoopbackFlow_Success is the positive-path counterpart: a real
+// browser (simulated by hitting the loopback redirect_uri with the state and
+// an authorization code, exactly like guard's /cli/signup page does) must
+// still complete the flow and mint a token. Proves the false-success fix
+// above does not regress the working desktop path.
+func TestRunLoopbackFlow_Success(t *testing.T) {
+	tokenSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/cli/token" {
+			t.Errorf("unexpected path %s", r.URL.Path)
+			w.WriteHeader(404)
+			return
+		}
+		if err := r.ParseForm(); err != nil {
+			t.Errorf("parse form: %v", err)
+		}
+		if got := r.PostForm.Get("grant_type"); got != authCodeGrantType {
+			t.Errorf("grant_type = %q, want %q", got, authCodeGrantType)
+		}
+		if got := r.PostForm.Get("code"); got != "auth-code-xyz" {
+			t.Errorf("code = %q, want auth-code-xyz", got)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(w, `{"token":"tok-loopback","host":null}`)
+	}))
+	t.Cleanup(tokenSrv.Close)
+
+	var wg sync.WaitGroup
+	origOpen := openBrowser
+	openBrowser = func(authURL string) error {
+		u, err := url.Parse(authURL)
+		if err != nil {
+			t.Errorf("parse authURL: %v", err)
+			return err
+		}
+		q := u.Query()
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			cbURL := q.Get("redirect_uri") + "?state=" + q.Get("state") + "&code=auth-code-xyz"
+			resp, err := http.Get(cbURL)
+			if err != nil {
+				t.Errorf("callback GET failed: %v", err)
+				return
+			}
+			resp.Body.Close()
+		}()
+		return nil
+	}
+	t.Cleanup(func() { openBrowser = origOpen })
+
+	c := &cliAuthClient{baseURL: tokenSrv.URL, http: tokenSrv.Client()}
+	tok, err := runLoopbackFlow(context.Background(), c, io.Discard)
+	wg.Wait()
+	if err != nil {
+		t.Fatalf("runLoopbackFlow: %v", err)
+	}
+	if tok.Token != "tok-loopback" {
+		t.Errorf("token = %q, want tok-loopback", tok.Token)
+	}
+}
+
+// ── validateHost ──────────────────────────────────────────────────────────────
+
+func TestValidateHost_AcceptsBareHostnames(t *testing.T) {
+	valid := []string{
+		"me.semaphoreci.com",
+		"localhost",
+		"id-host2.example.co",
+		"a.b.c.d.example.org",
+	}
+	for _, h := range valid {
+		if err := validateHost("host", h); err != nil {
+			t.Errorf("validateHost(%q) = %v, want nil", h, err)
+		}
+	}
+}
+
+// TestValidateHost_RejectsNonHostnames covers the MEDIUM fix: a userinfo
+// trick (victim@evil.com), an embedded scheme, a path, a port, or a
+// query/fragment must all be rejected — only a bare hostname is accepted.
+func TestValidateHost_RejectsNonHostnames(t *testing.T) {
+	invalid := []string{
+		"",
+		"victim@evil.com",
+		"me.semaphoreci.com@evil.com",
+		"http://evil.com",
+		"https://evil.com",
+		"evil.com/path",
+		"evil.com:8080",
+		"evil.com?x=1",
+		"evil.com#frag",
+		"evil .com",
+		"evil.com\t",
+	}
+	for _, h := range invalid {
+		if err := validateHost("host", h); err == nil {
+			t.Errorf("validateHost(%q) = nil, want error", h)
+		}
+	}
+}
+
+// TestSignup_RejectsBadHostArg confirms the fast, before-any-network-call
+// guard is actually wired into RunE for the positional <host> argument.
+func TestSignup_RejectsBadHostArg(t *testing.T) {
+	output.SetWriters(io.Discard, io.Discard)
+	t.Cleanup(func() { output.SetWriters(nil, nil) })
+
+	err := signupCmd.RunE(signupCmd, []string{"victim@evil.com"})
+	if err == nil {
+		t.Fatal("expected error for a host containing userinfo")
+	}
+	if !strings.Contains(err.Error(), "not a valid hostname") {
+		t.Errorf("error = %q, want it to mention invalid hostname", err.Error())
+	}
+}
+
+// TestSignup_RejectsBadIDHostFlag confirms --id-host, which feeds the
+// CLI-auth base URL directly, is validated too.
+func TestSignup_RejectsBadIDHostFlag(t *testing.T) {
+	output.SetWriters(io.Discard, io.Discard)
+	t.Cleanup(func() { output.SetWriters(nil, nil) })
+
+	loginIDHost = "attacker.com/x@real.com"
+	t.Cleanup(func() { loginIDHost = "" })
+
+	err := signupCmd.RunE(signupCmd, []string{"me.example.com"})
+	if err == nil {
+		t.Fatal("expected error for a malformed --id-host")
+	}
+	if !strings.Contains(err.Error(), "--id-host") {
+		t.Errorf("error = %q, want it to mention --id-host", err.Error())
+	}
+}
+
+// TestSignup_RejectsBadOrgHostFlag confirms --org-host, which becomes the
+// saved context host for future URL construction, is validated too.
+func TestSignup_RejectsBadOrgHostFlag(t *testing.T) {
+	output.SetWriters(io.Discard, io.Discard)
+	t.Cleanup(func() { output.SetWriters(nil, nil) })
+
+	signupOrgName = "myorg"
+	signupOrgHost = "evil.com:8080"
+	t.Cleanup(func() { signupOrgName, signupOrgHost = "", "" })
+
+	err := signupCmd.RunE(signupCmd, []string{"me.example.com"})
+	if err == nil {
+		t.Fatal("expected error for a malformed --org-host")
+	}
+	if !strings.Contains(err.Error(), "--org-host") {
+		t.Errorf("error = %q, want it to mention --org-host", err.Error())
 	}
 }
 
