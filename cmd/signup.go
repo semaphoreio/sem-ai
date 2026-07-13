@@ -56,6 +56,12 @@ import (
 const (
 	loginCallbackPath = "/callback"
 
+	// Semaphore Cloud defaults used when signup is run with no [host].
+	// defaultSignupHost is the account-level host; defaultSignupIDHost serves
+	// guard's CLI-auth endpoints. Both are overridable ([host] / --id-host).
+	defaultSignupHost   = "me.semaphoreci.com"
+	defaultSignupIDHost = "id.semaphoreci.com"
+
 	deviceGrantType   = "urn:ietf:params:oauth:grant-type:device_code"
 	authCodeGrantType = "authorization_code"
 
@@ -144,13 +150,16 @@ func validateHost(flagName, host string) error {
 }
 
 var signupCmd = &cobra.Command{
-	Use:   "signup <host>",
+	Use:   "signup [host]",
 	Short: "Create a new Semaphore account and save an API token",
-	Long: `Create a NEW Semaphore account and store an API token for <host>.
+	Long: `Create a NEW Semaphore account and store an API token.
+
+Defaults to Semaphore Cloud (me.semaphoreci.com). Pass a different [host] (and
+--id-host for the CLI-auth endpoints) to sign up against another deployment.
 
 signup is a one-time onboarding command. If you already have a Semaphore
 account, use 'sem-ai connect <host> <token>' with a token from your Semaphore
-settings instead — signup will refuse an account that already exists.
+settings instead; signup refuses an account that already exists.
 
 Prefers a browser-based loopback + PKCE flow. When no browser is available
 (SSH session, no display, or --headless), it falls back to the device
@@ -159,15 +168,20 @@ polls until you approve.
 
 With --org, signup also creates a first organization after the account is
 ready. The account token authenticates the create call against the account-level
-endpoint on <host>. The create API does not return the new org's host, so pass
+endpoint on [host]. The create API does not return the new org's host, so pass
 --org-host with the org's host; that context is then made active.`,
-	Args: cobra.ExactArgs(1),
-	Example: `  sem-ai signup me.semaphoreci.com
-  sem-ai signup me.semaphoreci.com --headless
+	Args: cobra.MaximumNArgs(1),
+	Example: `  sem-ai signup
+  sem-ai signup --headless
   sem-ai signup me.semaphoreci.com --id-host id.semaphoreci.com
-  sem-ai signup me.semaphoreci.com --org myorg --org-host myorg.semaphoreci.com`,
+  sem-ai signup my-onprem.example.com --org myorg --org-host myorg.example.com`,
 	RunE: func(cmd *cobra.Command, args []string) error {
-		host := args[0]
+		// Default to Semaphore Cloud; a positional host overrides for on-prem
+		// or other deployments.
+		host := defaultSignupHost
+		if len(args) > 0 {
+			host = args[0]
+		}
 
 		// Reject anything but a bare hostname before touching the network — a
 		// userinfo/scheme/path/port trick in <host>, --id-host, or --org-host
@@ -198,11 +212,15 @@ endpoint on <host>. The create API does not return the new org's host, so pass
 		}
 
 		// The CLI-auth endpoints (/cli/device, /cli/token, /cli/signup) live on
-		// guard. Default to <host>; --id-host overrides for deployments where
-		// guard is served from a separate host.
+		// guard. --id-host overrides; otherwise for the default (Semaphore Cloud)
+		// use its guard host, and for an explicit [host] fall back to that host.
 		authHost := loginIDHost
 		if authHost == "" {
-			authHost = host
+			if len(args) == 0 {
+				authHost = defaultSignupIDHost
+			} else {
+				authHost = host
+			}
 		}
 
 		c := &cliAuthClient{

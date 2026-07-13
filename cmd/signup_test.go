@@ -473,8 +473,8 @@ func TestSignup_RejectsBadOrgHostFlag(t *testing.T) {
 // ── signup command wiring ────────────────────────────────────────────────────
 
 func TestSignupCmd_UseAndArgs(t *testing.T) {
-	if signupCmd.Use != "signup <host>" {
-		t.Errorf("Use = %q, want \"signup <host>\"", signupCmd.Use)
+	if signupCmd.Use != "signup [host]" {
+		t.Errorf("Use = %q, want \"signup [host]\"", signupCmd.Use)
 	}
 	// Registered under root.
 	found := false
@@ -487,15 +487,33 @@ func TestSignupCmd_UseAndArgs(t *testing.T) {
 	if !found {
 		t.Error("signup command is not registered on rootCmd")
 	}
-	// Exactly one positional arg.
-	if err := signupCmd.Args(signupCmd, []string{}); err == nil {
-		t.Error("expected error with zero args")
+	// Host is optional (defaults to Semaphore Cloud); zero or one arg is valid.
+	if err := signupCmd.Args(signupCmd, []string{}); err != nil {
+		t.Errorf("unexpected error with zero args (should default to prod): %v", err)
 	}
 	if err := signupCmd.Args(signupCmd, []string{"me.example.com"}); err != nil {
 		t.Errorf("unexpected error with one arg: %v", err)
 	}
 	if err := signupCmd.Args(signupCmd, []string{"a", "b"}); err == nil {
 		t.Error("expected error with two args")
+	}
+}
+
+// TestSignupCmd_DefaultHosts pins the Semaphore Cloud defaults used when signup
+// runs with no [host].
+func TestSignupCmd_DefaultHosts(t *testing.T) {
+	if defaultSignupHost != "me.semaphoreci.com" {
+		t.Errorf("defaultSignupHost = %q, want me.semaphoreci.com", defaultSignupHost)
+	}
+	if defaultSignupIDHost != "id.semaphoreci.com" {
+		t.Errorf("defaultSignupIDHost = %q, want id.semaphoreci.com", defaultSignupIDHost)
+	}
+	// Both defaults must survive the host validator (no scheme/port/userinfo).
+	if err := validateHost("host", defaultSignupHost); err != nil {
+		t.Errorf("defaultSignupHost rejected by validateHost: %v", err)
+	}
+	if err := validateHost("--id-host", defaultSignupIDHost); err != nil {
+		t.Errorf("defaultSignupIDHost rejected by validateHost: %v", err)
 	}
 }
 
