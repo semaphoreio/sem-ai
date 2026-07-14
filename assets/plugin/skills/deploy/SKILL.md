@@ -27,8 +27,9 @@ sem-ai promote-and-wait <id> --target "Staging Deploy" --confirm
 # Override conditions (deploy despite failures)
 sem-ai pipeline promote <id> --target "Staging" --confirm --override
 
-# With parameters
+# With parameters (each --param becomes a promotion env var)
 sem-ai pipeline promote <id> --target "Production" --confirm --param version=1.2.3
+sem-ai pipeline promote <id> --target "Production Deploy" --confirm --param SERVICE=web
 ```
 
 ## Deployment targets — read

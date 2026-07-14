@@ -20,8 +20,8 @@ var taskCmd = &cobra.Command{
 var taskProjectFlag string
 
 var taskListCmd = &cobra.Command{
-	Use:   "list",
-	Short: "List scheduled tasks for a project",
+	Use:     "list",
+	Short:   "List scheduled tasks for a project",
 	Example: `  sem-ai task list --project my-project`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		if !config.IsConfigured() {
@@ -77,17 +77,51 @@ var taskShowCmd = &cobra.Command{
 	},
 }
 
+var (
+	taskRunParamsFlag []string
+	taskRunBranchFlag string
+	taskRunFileFlag   string
+)
+
 var taskRunCmd = &cobra.Command{
-	Use:     "run <id>",
-	Short:   "Trigger a scheduled task to run now",
-	Args:    cobra.ExactArgs(1),
-	Example: `  sem-ai task run <task-id>`,
+	Use:   "run <id>",
+	Short: "Trigger a scheduled task to run now",
+	Args:  cobra.ExactArgs(1),
+	Example: `  sem-ai task run <task-id>
+  sem-ai task run <task-id> --param KEY=VALUE --param KEY2=VALUE2
+  sem-ai task run <task-id> --branch main --pipeline-file .semaphore/pipeline.yml --param KEY=VALUE`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		if !config.IsConfigured() {
 			return fmt.Errorf("not configured — run 'sem-ai connect' first")
 		}
+
+		// Build a run_now body only when overrides are supplied; otherwise
+		// send nil to preserve the parameter-less default behaviour.
+		var body []byte
+		if len(taskRunParamsFlag) > 0 || taskRunBranchFlag != "" || taskRunFileFlag != "" {
+			reqBody := map[string]any{}
+			if taskRunBranchFlag != "" {
+				reqBody["branch"] = taskRunBranchFlag
+			}
+			if taskRunFileFlag != "" {
+				reqBody["pipeline_file"] = taskRunFileFlag
+			}
+			params := map[string]string{}
+			for _, p := range taskRunParamsFlag {
+				i := strings.IndexByte(p, '=')
+				if i <= 0 {
+					return fmt.Errorf("invalid --param %q: expected KEY=VALUE", p)
+				}
+				params[p[:i]] = p[i+1:]
+			}
+			if len(params) > 0 {
+				reqBody["parameters"] = params
+			}
+			body, _ = json.Marshal(reqBody)
+		}
+
 		c := client.New()
-		resp, err := c.PostAction("tasks", args[0], "run_now", nil)
+		resp, err := c.PostAction("tasks", args[0], "run_now", body)
 		if err != nil {
 			output.Error("api_error", err.Error(), 1)
 			return err
@@ -131,17 +165,19 @@ var taskDeleteCmd = &cobra.Command{
 }
 
 var (
-	taskCreateProjectFlag string
-	taskCreateBranchFlag  string
-	taskCreateFileFlag    string
-	taskCreateCronFlag    string
+	taskCreateProjectFlag  string
+	taskCreateBranchFlag   string
+	taskCreateFileFlag     string
+	taskCreateCronFlag     string
+	taskCreateParamDefFlag []string
 )
 
 var taskCreateCmd = &cobra.Command{
 	Use:   "create <name>",
 	Short: "Create a scheduled task (periodic job)",
 	Args:  cobra.ExactArgs(1),
-	Example: `  sem-ai task create nightly-tests --project my-app --branch main --file .semaphore/nightly.yml --cron "0 2 * * *"`,
+	Example: `  sem-ai task create nightly-tests --project my-app --branch main --file .semaphore/nightly.yml --cron "0 2 * * *"
+  sem-ai task create deploy-env --branch main --file .semaphore/deploy.yml --param-def ENVIRONMENT=staging --param-def VERSION`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		if !config.IsConfigured() {
 			return fmt.Errorf("not configured — run 'sem-ai connect' first")
@@ -178,7 +214,12 @@ var taskCreateCmd = &cobra.Command{
 			}
 		}
 
-		yml := buildScheduleYAML(args[0], projectName, taskCreateBranchFlag, taskCreateFileFlag, taskCreateCronFlag)
+		paramDefs, err := parseParamDefs(taskCreateParamDefFlag)
+		if err != nil {
+			return err
+		}
+
+		yml := buildScheduleYAML(args[0], projectName, taskCreateBranchFlag, taskCreateFileFlag, taskCreateCronFlag, paramDefs)
 		bodyBytes, _ := json.Marshal(map[string]string{"yml_definition": yml})
 
 		resp, err := c.Post("tasks", bodyBytes)
@@ -200,10 +241,37 @@ var taskCreateCmd = &cobra.Command{
 	},
 }
 
+// taskParamDef is a parameter definition on a task (not a run-time value).
+type taskParamDef struct {
+	Name         string
+	Required     bool
+	DefaultValue string
+}
+
+// parseParamDefs turns repeatable --param-def flags into definitions.
+// Bare NAME declares a required parameter; NAME=DEFAULT declares an
+// optional one with a default value.
+func parseParamDefs(defs []string) ([]taskParamDef, error) {
+	out := make([]taskParamDef, 0, len(defs))
+	for _, d := range defs {
+		i := strings.IndexByte(d, '=')
+		switch {
+		case i == 0 || d == "":
+			return nil, fmt.Errorf("invalid --param-def %q: expected NAME or NAME=DEFAULT", d)
+		case i < 0:
+			out = append(out, taskParamDef{Name: d, Required: true})
+		default:
+			out = append(out, taskParamDef{Name: d[:i], Required: false, DefaultValue: d[i+1:]})
+		}
+	}
+	return out, nil
+}
+
 // buildScheduleYAML renders the apiVersion/kind/metadata/spec doc that
 // v1alpha POST /tasks (apply schedule) expects as yml_definition.
-// apiVersion v1.1 enables one-off tasks via recurring:false (no `at`).
-func buildScheduleYAML(name, project, branch, pipelineFile, cron string) string {
+// apiVersion v1.1 enables one-off tasks via recurring:false (no `at`)
+// and parameter definitions.
+func buildScheduleYAML(name, project, branch, pipelineFile, cron string, params []taskParamDef) string {
 	recurring := cron != ""
 	var b strings.Builder
 	b.WriteString("apiVersion: v1.1\n")
@@ -217,6 +285,16 @@ func buildScheduleYAML(name, project, branch, pipelineFile, cron string) string 
 	fmt.Fprintf(&b, "  recurring: %t\n", recurring)
 	if recurring {
 		fmt.Fprintf(&b, "  at: %q\n", cron)
+	}
+	if len(params) > 0 {
+		b.WriteString("  parameters:\n")
+		for _, p := range params {
+			fmt.Fprintf(&b, "    - name: %s\n", yamlEscape(p.Name))
+			fmt.Fprintf(&b, "      required: %t\n", p.Required)
+			if !p.Required {
+				fmt.Fprintf(&b, "      default_value: %s\n", yamlEscape(p.DefaultValue))
+			}
+		}
 	}
 	return b.String()
 }
@@ -239,6 +317,11 @@ func init() {
 	taskCreateCmd.Flags().StringVar(&taskCreateBranchFlag, "branch", "main", "branch to run on")
 	taskCreateCmd.Flags().StringVar(&taskCreateFileFlag, "file", ".semaphore/semaphore.yml", "pipeline YAML file")
 	taskCreateCmd.Flags().StringVar(&taskCreateCronFlag, "cron", "", "cron expression for recurring tasks")
+	taskCreateCmd.Flags().StringArrayVar(&taskCreateParamDefFlag, "param-def", nil, "parameter definition as NAME (required) or NAME=DEFAULT (optional with default); repeatable")
+
+	taskRunCmd.Flags().StringArrayVar(&taskRunParamsFlag, "param", nil, "task parameter as KEY=VALUE (repeatable)")
+	taskRunCmd.Flags().StringVar(&taskRunBranchFlag, "branch", "", "git ref the task pipeline runs on (e.g. master); defaults to the task's configured branch")
+	taskRunCmd.Flags().StringVar(&taskRunFileFlag, "pipeline-file", "", "pipeline YAML file the task runs; defaults to the task's configured file")
 
 	taskCmd.AddCommand(taskListCmd)
 	taskCmd.AddCommand(taskShowCmd)

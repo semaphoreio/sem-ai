@@ -33,9 +33,20 @@ sem-ai agent delete <type-name>     # delete type
 ## Scheduled tasks
 ```bash
 sem-ai task list --project <p>
-sem-ai task show <id>
+sem-ai task show <id>               # details + recent triggers
 sem-ai task run <id>                # trigger now
 sem-ai task delete <id>
+
+# Parameterized tasks: pass parameters, branch, and pipeline file.
+# Parameters go to the task's run_now as a map; branch/pipeline-file pick
+# the ref + YAML the task pipeline runs.
+sem-ai task run <id> --param KEY=VALUE [--param ...] \
+  [--branch <ref>] [--pipeline-file <path>]
+
+# Create with parameter definitions: bare NAME = required,
+# NAME=DEFAULT = optional with a default value.
+sem-ai task create <name> --branch main --file <path> [--cron "<expr>"] \
+  [--param-def NAME] [--param-def NAME=DEFAULT]
 ```
 
 ## Artifacts
