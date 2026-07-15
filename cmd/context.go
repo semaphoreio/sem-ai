@@ -119,11 +119,14 @@ var contextSwitchCmd = &cobra.Command{
 			output.Error("config_error", err.Error(), 1)
 			return err
 		}
-		config.Load()
+		if err := config.Load(); err != nil {
+			output.Error("config_error", err.Error(), 1)
+			return err
+		}
 		output.Result(map[string]string{
 			"status":  "switched",
 			"context": target,
-			"host":    config.GetHost(),
+			"host":    viper.GetString(fmt.Sprintf("contexts.%s.host", target)),
 		})
 		return nil
 	},
