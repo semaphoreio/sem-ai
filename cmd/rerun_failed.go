@@ -20,7 +20,7 @@ Use 'sem-ai watch <workflow-id>' to follow progress after.`,
 	Example: `  sem-ai rerun-failed <pipeline-id>`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		if !config.IsConfigured() {
-			return fmt.Errorf("not configured — run 'sem-ai connect' first")
+			return fmt.Errorf("not configured; run 'sem-ai connect' first")
 		}
 		pipelineID := args[0]
 		c := client.New()
@@ -85,7 +85,7 @@ Use 'sem-ai watch <workflow-id>' to follow progress after.`,
 			"workflow_id":   pplData.Pipeline.WfID,
 			"status":        "rebuild_triggered",
 			"failed_blocks": failedBlocks,
-			"message":       fmt.Sprintf("rebuilding %d failed blocks — use 'sem-ai watch %s' to follow", len(failedBlocks), pplData.Pipeline.WfID),
+			"message":       fmt.Sprintf("rebuilding %d failed blocks; use 'sem-ai watch %s' to follow", len(failedBlocks), pplData.Pipeline.WfID),
 		})
 		return nil
 	},

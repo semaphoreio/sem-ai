@@ -22,7 +22,7 @@ var agentTypesCmd = &cobra.Command{
 	Example: `  sem-ai agent types`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		if !config.IsConfigured() {
-			return fmt.Errorf("not configured — run 'sem-ai connect' first")
+			return fmt.Errorf("not configured; run 'sem-ai connect' first")
 		}
 		c := client.New()
 		resp, err := c.List("self_hosted_agent_types")
@@ -48,7 +48,7 @@ var agentShowCmd = &cobra.Command{
 	Example: `  sem-ai agent show s1-my-type`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		if !config.IsConfigured() {
-			return fmt.Errorf("not configured — run 'sem-ai connect' first")
+			return fmt.Errorf("not configured; run 'sem-ai connect' first")
 		}
 		c := client.New()
 		resp, err := c.Get("self_hosted_agent_types", args[0])
@@ -75,7 +75,7 @@ var agentListCmd = &cobra.Command{
 	Example: `  sem-ai agent list --type s1-my-type`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		if !config.IsConfigured() {
-			return fmt.Errorf("not configured — run 'sem-ai connect' first")
+			return fmt.Errorf("not configured; run 'sem-ai connect' first")
 		}
 		if agentListTypeFlag == "" {
 			output.Error("invalid_args", "--type is required", 1)
@@ -107,7 +107,7 @@ var agentTypeDeleteCmd = &cobra.Command{
 	Example: `  sem-ai agent delete s1-my-type`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		if !config.IsConfigured() {
-			return fmt.Errorf("not configured — run 'sem-ai connect' first")
+			return fmt.Errorf("not configured; run 'sem-ai connect' first")
 		}
 		c := client.New()
 		resp, err := c.Delete("self_hosted_agent_types", args[0])

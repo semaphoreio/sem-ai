@@ -25,7 +25,7 @@ var pipelineShowCmd = &cobra.Command{
   sem-ai pipeline show abc123-def456 --format yaml`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		if !config.IsConfigured() {
-			return fmt.Errorf("not configured — run 'sem-ai connect' first")
+			return fmt.Errorf("not configured; run 'sem-ai connect' first")
 		}
 		c := client.New()
 		params := url.Values{}
@@ -159,7 +159,7 @@ var pipelineListCmd = &cobra.Command{
 	Example: `  sem-ai pipeline list --project my-project`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		if !config.IsConfigured() {
-			return fmt.Errorf("not configured — run 'sem-ai connect' first")
+			return fmt.Errorf("not configured; run 'sem-ai connect' first")
 		}
 		projectID, err := resolveProjectID(pipelineListProjectFlag)
 		if err != nil {
@@ -192,7 +192,7 @@ var pipelineStopCmd = &cobra.Command{
 	Example: `  sem-ai pipeline stop abc123-def456`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		if !config.IsConfigured() {
-			return fmt.Errorf("not configured — run 'sem-ai connect' first")
+			return fmt.Errorf("not configured; run 'sem-ai connect' first")
 		}
 		c := client.New()
 		body := []byte(`{"terminate_request": true}`)
@@ -217,7 +217,7 @@ var pipelineRebuildCmd = &cobra.Command{
 	Example: `  sem-ai pipeline rebuild abc123-def456`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		if !config.IsConfigured() {
-			return fmt.Errorf("not configured — run 'sem-ai connect' first")
+			return fmt.Errorf("not configured; run 'sem-ai connect' first")
 		}
 		c := client.New()
 		token := client.NewRequestToken()
@@ -258,7 +258,7 @@ Safety:
   --confirm is REQUIRED. Without it, the command shows what would happen but does not execute.
   This prevents accidental deployments by AI agents or scripts.`,
 	Args: cobra.ExactArgs(1),
-	Example: `  # Dry run — see what would happen
+	Example: `  # Dry run: see what would happen
   sem-ai pipeline promote abc123 --target "Staging Deploy"
 
   # Actually trigger promotion
@@ -271,7 +271,7 @@ Safety:
   sem-ai pipeline promote abc123 --target "Production Deploy" --confirm --param version=1.2.3`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		if !config.IsConfigured() {
-			return fmt.Errorf("not configured — run 'sem-ai connect' first")
+			return fmt.Errorf("not configured; run 'sem-ai connect' first")
 		}
 
 		pipelineID := args[0]

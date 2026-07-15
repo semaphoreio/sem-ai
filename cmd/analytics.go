@@ -283,14 +283,14 @@ type analyticsBlock struct {
 
 func fetchAnalyticsPipelines() ([]analyticsPipeline, error) {
 	if !config.IsConfigured() {
-		return nil, fmt.Errorf("not configured — run 'sem-ai connect' first")
+		return nil, fmt.Errorf("not configured; run 'sem-ai connect' first")
 	}
 
 	project := analyticsProjectFlag
 	if project == "" {
 		p, err := detectProject()
 		if err != nil {
-			output.Error("context_error", "could not detect project — use --project", 1)
+			output.Error("context_error", "could not detect project; use --project", 1)
 			return nil, err
 		}
 		project = p

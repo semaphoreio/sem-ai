@@ -46,7 +46,7 @@ var projectListCmd = &cobra.Command{
 	Example: "  sem-ai project list\n  sem-ai project list --format table",
 	RunE: func(cmd *cobra.Command, args []string) error {
 		if !config.IsConfigured() {
-			return fmt.Errorf("not configured — run 'sem-ai connect' first")
+			return fmt.Errorf("not configured; run 'sem-ai connect' first")
 		}
 		c := client.New()
 		resp, err := c.List("projects")
@@ -112,7 +112,7 @@ var projectShowCmd = &cobra.Command{
 	Example: "  sem-ai project show my-project\n  sem-ai project show my-project --format yaml",
 	RunE: func(cmd *cobra.Command, args []string) error {
 		if !config.IsConfigured() {
-			return fmt.Errorf("not configured — run 'sem-ai connect' first")
+			return fmt.Errorf("not configured; run 'sem-ai connect' first")
 		}
 		c := client.New()
 
@@ -169,7 +169,7 @@ var projectDeleteCmd = &cobra.Command{
 	Example: `  sem-ai project delete my-project`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		if !config.IsConfigured() {
-			return fmt.Errorf("not configured — run 'sem-ai connect' first")
+			return fmt.Errorf("not configured; run 'sem-ai connect' first")
 		}
 		c := client.New()
 		resp, err := c.Delete("projects", args[0])
@@ -199,7 +199,7 @@ var projectUpdateCmd = &cobra.Command{
   sem-ai project update my-project --description "My app"`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		if !config.IsConfigured() {
-			return fmt.Errorf("not configured — run 'sem-ai connect' first")
+			return fmt.Errorf("not configured; run 'sem-ai connect' first")
 		}
 
 		// Need to get current project to build PATCH body
@@ -302,7 +302,7 @@ var projectCreateCmd = &cobra.Command{
   sem-ai project create --fail-on-exists`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		if !config.IsConfigured() {
-			return fmt.Errorf("not configured — run 'sem-ai connect' first")
+			return fmt.Errorf("not configured; run 'sem-ai connect' first")
 		}
 
 		integration := projectCreateIntegrationFlag

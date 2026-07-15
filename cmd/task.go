@@ -25,7 +25,7 @@ var taskListCmd = &cobra.Command{
 	Example: `  sem-ai task list --project my-project`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		if !config.IsConfigured() {
-			return fmt.Errorf("not configured — run 'sem-ai connect' first")
+			return fmt.Errorf("not configured; run 'sem-ai connect' first")
 		}
 		projectID, err := resolveProjectID(taskProjectFlag)
 		if err != nil {
@@ -58,7 +58,7 @@ var taskShowCmd = &cobra.Command{
 	Example: `  sem-ai task show <task-id>`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		if !config.IsConfigured() {
-			return fmt.Errorf("not configured — run 'sem-ai connect' first")
+			return fmt.Errorf("not configured; run 'sem-ai connect' first")
 		}
 		c := client.New()
 		resp, err := c.Get("tasks", args[0])
@@ -92,7 +92,7 @@ var taskRunCmd = &cobra.Command{
   sem-ai task run <task-id> --branch main --pipeline-file .semaphore/pipeline.yml --param KEY=VALUE`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		if !config.IsConfigured() {
-			return fmt.Errorf("not configured — run 'sem-ai connect' first")
+			return fmt.Errorf("not configured; run 'sem-ai connect' first")
 		}
 
 		// Build a run_now body only when overrides are supplied; otherwise
@@ -147,7 +147,7 @@ var taskDeleteCmd = &cobra.Command{
 	Example: `  sem-ai task delete <task-id>`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		if !config.IsConfigured() {
-			return fmt.Errorf("not configured — run 'sem-ai connect' first")
+			return fmt.Errorf("not configured; run 'sem-ai connect' first")
 		}
 		c := client.New()
 		resp, err := c.Delete("tasks", args[0])
@@ -180,7 +180,7 @@ var taskCreateCmd = &cobra.Command{
   sem-ai task create deploy-env --branch main --file .semaphore/deploy.yml --param-def ENVIRONMENT=staging --param-def VERSION`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		if !config.IsConfigured() {
-			return fmt.Errorf("not configured — run 'sem-ai connect' first")
+			return fmt.Errorf("not configured; run 'sem-ai connect' first")
 		}
 		projectName, projectID, err := resolveProject(taskCreateProjectFlag)
 		if err != nil {

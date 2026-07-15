@@ -38,7 +38,7 @@ var openCmd = &cobra.Command{
   sem-ai open --project my-project`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		if !config.IsConfigured() {
-			return fmt.Errorf("not configured — run 'sem-ai connect' first")
+			return fmt.Errorf("not configured; run 'sem-ai connect' first")
 		}
 
 		host := config.GetHost()
@@ -54,7 +54,7 @@ var openCmd = &cobra.Command{
 		if project == "" {
 			p, err := detectProject()
 			if err != nil {
-				output.Error("context_error", "could not detect project — use --project", 1)
+				output.Error("context_error", "could not detect project; use --project", 1)
 				return err
 			}
 			project = p

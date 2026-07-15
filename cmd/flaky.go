@@ -181,7 +181,7 @@ var flakyListCmd = &cobra.Command{
   sem-ai flaky list --project my-project --pass-rate "<80" --sort-field pass_rate --sort-dir asc`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		if !config.IsConfigured() {
-			return fmt.Errorf("not configured — run 'sem-ai connect' first")
+			return fmt.Errorf("not configured; run 'sem-ai connect' first")
 		}
 		projectID, err := resolveProjectID(flakyListProject)
 		if err != nil {
@@ -217,7 +217,7 @@ var flakyShowCmd = &cobra.Command{
 	Example: `  sem-ai flaky show 3f2a... --project my-project`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		if !config.IsConfigured() {
-			return fmt.Errorf("not configured — run 'sem-ai connect' first")
+			return fmt.Errorf("not configured; run 'sem-ai connect' first")
 		}
 		projectID, err := resolveProjectID(flakyShowProject)
 		if err != nil {
@@ -250,7 +250,7 @@ var flakyDisruptionsCmd = &cobra.Command{
 	Example: `  sem-ai flaky disruptions 3f2a... --project my-project --page-size 50`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		if !config.IsConfigured() {
-			return fmt.Errorf("not configured — run 'sem-ai connect' first")
+			return fmt.Errorf("not configured; run 'sem-ai connect' first")
 		}
 		projectID, err := resolveProjectID(flakyDisrProject)
 		if err != nil {
@@ -285,7 +285,7 @@ var flakyTrendsCmd = &cobra.Command{
   sem-ai flaky trends --project my-project --metric disruptions --branch main`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		if !config.IsConfigured() {
-			return fmt.Errorf("not configured — run 'sem-ai connect' first")
+			return fmt.Errorf("not configured; run 'sem-ai connect' first")
 		}
 		projectID, err := resolveProjectID(flakyTrendsProject)
 		if err != nil {
@@ -353,7 +353,7 @@ Use --run-id to skip disruption resolution and fetch a specific job directly.`,
   sem-ai flaky failure 3f2a... --project my-project --run-id <job-id>`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		if !config.IsConfigured() {
-			return fmt.Errorf("not configured — run 'sem-ai connect' first")
+			return fmt.Errorf("not configured; run 'sem-ai connect' first")
 		}
 		testID := args[0]
 
@@ -457,7 +457,7 @@ func fetchJobLog(c *client.Client, jobID string) (string, error) {
 		return "", err
 	}
 	if resp.StatusCode != 200 {
-		msg := fmt.Sprintf("job log for %s unavailable (HTTP %d) — likely past retention; diagnose from source", jobID, resp.StatusCode)
+		msg := fmt.Sprintf("job log for %s unavailable (HTTP %d), likely past retention; diagnose from source", jobID, resp.StatusCode)
 		output.Error("log_unavailable", msg, resp.StatusCode)
 		return "", fmt.Errorf("log unavailable: HTTP %d", resp.StatusCode)
 	}

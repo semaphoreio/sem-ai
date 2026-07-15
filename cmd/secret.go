@@ -12,7 +12,7 @@ import (
 
 var secretCmd = &cobra.Command{
 	Use:   "secret",
-	Short: "Secret management — org and project level",
+	Short: "Secret management: org and project level",
 }
 
 var secretProjectFlag string
@@ -24,7 +24,7 @@ var secretListCmd = &cobra.Command{
   sem-ai secret list --project my-project`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		if !config.IsConfigured() {
-			return fmt.Errorf("not configured — run 'sem-ai connect' first")
+			return fmt.Errorf("not configured; run 'sem-ai connect' first")
 		}
 		c := client.New()
 		var resp *client.Response
@@ -73,7 +73,7 @@ var secretShowCmd = &cobra.Command{
   sem-ai secret show my-secret --project my-project`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		if !config.IsConfigured() {
-			return fmt.Errorf("not configured — run 'sem-ai connect' first")
+			return fmt.Errorf("not configured; run 'sem-ai connect' first")
 		}
 		c := client.New()
 		var resp *client.Response
@@ -123,7 +123,7 @@ var secretCreateCmd = &cobra.Command{
   sem-ai secret create my-secret --project my-project --env API_KEY=abc123`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		if !config.IsConfigured() {
-			return fmt.Errorf("not configured — run 'sem-ai connect' first")
+			return fmt.Errorf("not configured; run 'sem-ai connect' first")
 		}
 
 		name := args[0]
@@ -200,7 +200,7 @@ var secretUpdateCmd = &cobra.Command{
   sem-ai secret update my-secret --project my-project --env DB_URL=new-url`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		if !config.IsConfigured() {
-			return fmt.Errorf("not configured — run 'sem-ai connect' first")
+			return fmt.Errorf("not configured; run 'sem-ai connect' first")
 		}
 		name := args[0]
 		envVars := make([]map[string]string, 0)
@@ -264,7 +264,7 @@ var secretDeleteCmd = &cobra.Command{
   sem-ai secret delete my-secret --project my-project`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		if !config.IsConfigured() {
-			return fmt.Errorf("not configured — run 'sem-ai connect' first")
+			return fmt.Errorf("not configured; run 'sem-ai connect' first")
 		}
 		c := client.New()
 		var resp *client.Response

@@ -22,7 +22,7 @@ var pipelineTopologyCmd = &cobra.Command{
   sem-ai pipeline topology <pipeline-id> --format table`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		if !config.IsConfigured() {
-			return fmt.Errorf("not configured — run 'sem-ai connect' first")
+			return fmt.Errorf("not configured; run 'sem-ai connect' first")
 		}
 		topo, err := fetchTopology(args[0])
 		if err != nil {
@@ -43,7 +43,7 @@ var criticalPathCmd = &cobra.Command{
 	Example: `  sem-ai critical-path <pipeline-id>`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		if !config.IsConfigured() {
-			return fmt.Errorf("not configured — run 'sem-ai connect' first")
+			return fmt.Errorf("not configured; run 'sem-ai connect' first")
 		}
 		topo, err := fetchTopology(args[0])
 		if err != nil {
@@ -99,7 +99,7 @@ var blastRadiusCmd = &cobra.Command{
   sem-ai blast-radius <pipeline-id> --block "Build project"`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		if !config.IsConfigured() {
-			return fmt.Errorf("not configured — run 'sem-ai connect' first")
+			return fmt.Errorf("not configured; run 'sem-ai connect' first")
 		}
 
 		topo, err := fetchTopology(args[0])

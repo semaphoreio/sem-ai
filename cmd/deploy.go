@@ -17,7 +17,7 @@ import (
 
 var deployCmd = &cobra.Command{
 	Use:   "deploy",
-	Short: "Deployment target operations — visibility and management",
+	Short: "Deployment target operations: visibility and management",
 }
 
 var deployTargetsProjectFlag string
@@ -28,7 +28,7 @@ var deployTargetsCmd = &cobra.Command{
 	Example: `  sem-ai deploy targets --project my-project`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		if !config.IsConfigured() {
-			return fmt.Errorf("not configured — run 'sem-ai connect' first")
+			return fmt.Errorf("not configured; run 'sem-ai connect' first")
 		}
 		projectID, err := resolveProjectID(deployTargetsProjectFlag)
 		if err != nil {
@@ -61,7 +61,7 @@ var deployShowCmd = &cobra.Command{
 	Example: `  sem-ai deploy show <target-id>`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		if !config.IsConfigured() {
-			return fmt.Errorf("not configured — run 'sem-ai connect' first")
+			return fmt.Errorf("not configured; run 'sem-ai connect' first")
 		}
 		c := client.New()
 		resp, err := c.Get("deployment_targets", args[0])
@@ -87,7 +87,7 @@ var deployHistoryCmd = &cobra.Command{
 	Example: `  sem-ai deploy history <target-id>`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		if !config.IsConfigured() {
-			return fmt.Errorf("not configured — run 'sem-ai connect' first")
+			return fmt.Errorf("not configured; run 'sem-ai connect' first")
 		}
 		c := client.New()
 		resp, err := c.Get("deployment_targets", args[0]+"/history")
@@ -113,7 +113,7 @@ var deployActivateCmd = &cobra.Command{
 	Example: `  sem-ai deploy activate <target-id>`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		if !config.IsConfigured() {
-			return fmt.Errorf("not configured — run 'sem-ai connect' first")
+			return fmt.Errorf("not configured; run 'sem-ai connect' first")
 		}
 		c := client.New()
 		resp, err := c.Patch("deployment_targets", args[0]+"/activate", nil)
@@ -137,7 +137,7 @@ var deployDeactivateCmd = &cobra.Command{
 	Example: `  sem-ai deploy deactivate <target-id>`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		if !config.IsConfigured() {
-			return fmt.Errorf("not configured — run 'sem-ai connect' first")
+			return fmt.Errorf("not configured; run 'sem-ai connect' first")
 		}
 		c := client.New()
 		resp, err := c.Patch("deployment_targets", args[0]+"/deactivate", nil)
@@ -161,7 +161,7 @@ var deployDeleteCmd = &cobra.Command{
 	Example: `  sem-ai deploy delete <target-id>`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		if !config.IsConfigured() {
-			return fmt.Errorf("not configured — run 'sem-ai connect' first")
+			return fmt.Errorf("not configured; run 'sem-ai connect' first")
 		}
 		c := client.New()
 		token := client.NewRequestToken()
@@ -357,7 +357,7 @@ var deployCreateCmd = &cobra.Command{
   sem-ai deploy create snapshot --project my-app --branch-exact main --subject-any`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		if !config.IsConfigured() {
-			return fmt.Errorf("not configured — run 'sem-ai connect' first")
+			return fmt.Errorf("not configured; run 'sem-ai connect' first")
 		}
 		projectID, err := resolveProjectID(deployCreateSpec.projectFlag)
 		if err != nil {
@@ -407,7 +407,7 @@ var deployUpdateCmd = &cobra.Command{
 	Example: `  sem-ai deploy update <target-id> --tag-regex '^v[0-9]+\.[0-9]+\.[0-9]+$' --env-var GITHUB_TOKEN=new_value`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		if !config.IsConfigured() {
-			return fmt.Errorf("not configured — run 'sem-ai connect' first")
+			return fmt.Errorf("not configured; run 'sem-ai connect' first")
 		}
 		body, err := deployUpdateSpec.toBody(deployUpdateNameFlag)
 		if err != nil {

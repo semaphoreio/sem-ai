@@ -12,7 +12,7 @@ import (
 
 var notificationCmd = &cobra.Command{
 	Use:   "notification",
-	Short: "Notification management — Slack, email, webhook",
+	Short: "Notification management: Slack, email, webhook",
 }
 
 var notificationListCmd = &cobra.Command{
@@ -21,7 +21,7 @@ var notificationListCmd = &cobra.Command{
 	Example: `  sem-ai notification list`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		if !config.IsConfigured() {
-			return fmt.Errorf("not configured — run 'sem-ai connect' first")
+			return fmt.Errorf("not configured; run 'sem-ai connect' first")
 		}
 		c := client.New()
 		resp, err := c.List("notifications")
@@ -47,7 +47,7 @@ var notificationShowCmd = &cobra.Command{
 	Example: `  sem-ai notification show my-notification`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		if !config.IsConfigured() {
-			return fmt.Errorf("not configured — run 'sem-ai connect' first")
+			return fmt.Errorf("not configured; run 'sem-ai connect' first")
 		}
 		c := client.New()
 		resp, err := c.Get("notifications", args[0])
@@ -73,7 +73,7 @@ var notificationDeleteCmd = &cobra.Command{
 	Example: `  sem-ai notification delete my-notification`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		if !config.IsConfigured() {
-			return fmt.Errorf("not configured — run 'sem-ai connect' first")
+			return fmt.Errorf("not configured; run 'sem-ai connect' first")
 		}
 		c := client.New()
 		resp, err := c.Delete("notifications", args[0])
@@ -98,10 +98,10 @@ var notificationCreateCmd = &cobra.Command{
 	Example: `  sem-ai notification create my-notification --file notification.json`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		if !config.IsConfigured() {
-			return fmt.Errorf("not configured — run 'sem-ai connect' first")
+			return fmt.Errorf("not configured; run 'sem-ai connect' first")
 		}
 		// For now, create a minimal notification — full YAML/JSON support in future
-		output.Error("not_implemented", "notification create requires --file with full notification spec (not yet implemented — use sem CLI for now)", 1)
+		output.Error("not_implemented", "notification create requires --file with full notification spec (not yet implemented; use sem CLI for now)", 1)
 		return fmt.Errorf("not yet fully implemented")
 	},
 }

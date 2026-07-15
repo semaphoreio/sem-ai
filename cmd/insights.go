@@ -39,7 +39,7 @@ type insightsFlags struct {
 
 func runInsights(metric string, f *insightsFlags) error {
 	if !config.IsConfigured() {
-		return fmt.Errorf("not configured — run 'sem-ai connect' first")
+		return fmt.Errorf("not configured; run 'sem-ai connect' first")
 	}
 	if f.pipelineFile == "" {
 		output.Error("usage_error", "--pipeline-file is required", 1)

@@ -21,7 +21,7 @@ var (
 
 var diagnoseCmd = &cobra.Command{
 	Use:   "diagnose [workflow-id]",
-	Short: "Failure diagnosis — one command, full root cause",
+	Short: "Failure diagnosis: one command, full root cause",
 	Long: `Compound command that composes: workflow → pipeline → failed blocks → failed jobs →
 logs → test results into a single structured diagnosis.
 
@@ -32,7 +32,7 @@ If no workflow ID is given, finds the latest workflow for the current project/br
   sem-ai diagnose --project my-project --branch main`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		if !config.IsConfigured() {
-			return fmt.Errorf("not configured — run 'sem-ai connect' first")
+			return fmt.Errorf("not configured; run 'sem-ai connect' first")
 		}
 
 		c := client.New()
@@ -63,7 +63,7 @@ If no workflow ID is given, finds the latest workflow for the current project/br
 			if project == "" {
 				p, err := detectProject()
 				if err != nil {
-					output.Error("context_error", "could not detect project — use --project or pass workflow ID", 1)
+					output.Error("context_error", "could not detect project; use --project or pass workflow ID", 1)
 					return err
 				}
 				project = p
@@ -194,7 +194,7 @@ If no workflow ID is given, finds the latest workflow for the current project/br
 								if e.ExitCode != 0 && e.Directive != "" {
 									sig := signals.Interpret(e.ExitCode)
 									if sig != nil {
-										failedCmds = append(failedCmds, fmt.Sprintf("$ %s (exit %d — %s)", e.Directive, e.ExitCode, sig.Signal))
+										failedCmds = append(failedCmds, fmt.Sprintf("$ %s (exit %d, %s)", e.Directive, e.ExitCode, sig.Signal))
 										fj.Signal = sig // last signal-bearing command wins (the trigger)
 									} else {
 										failedCmds = append(failedCmds, fmt.Sprintf("$ %s (exit %d)", e.Directive, e.ExitCode))

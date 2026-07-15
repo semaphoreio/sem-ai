@@ -42,7 +42,7 @@ var troubleshootJobCmd = &cobra.Command{
 func troubleshootRun(kind string) func(*cobra.Command, []string) error {
 	return func(cmd *cobra.Command, args []string) error {
 		if !config.IsConfigured() {
-			return fmt.Errorf("not configured — run 'sem-ai connect' first")
+			return fmt.Errorf("not configured; run 'sem-ai connect' first")
 		}
 		c := client.New()
 		resp, err := c.Get("troubleshoot/"+kind, args[0])

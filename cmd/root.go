@@ -35,7 +35,7 @@ var (
 var rootCmd = &cobra.Command{
 	Use:   "sem-ai",
 	Short: "Agent-first CLI for Semaphore CI/CD",
-	Long:  "sem-ai — structured, composable CLI designed for AI agents to drive the full CI/CD loop.",
+	Long:  "sem-ai: structured, composable CLI designed for AI agents to drive the full CI/CD loop.",
 	PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
 		if !verboseFlag {
 			log.SetOutput(io.Discard)

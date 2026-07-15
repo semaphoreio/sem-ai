@@ -25,7 +25,7 @@ var jobShowCmd = &cobra.Command{
 	Example: "  sem-ai job show job-uuid-here",
 	RunE: func(cmd *cobra.Command, args []string) error {
 		if !config.IsConfigured() {
-			return fmt.Errorf("not configured — run 'sem-ai connect' first")
+			return fmt.Errorf("not configured; run 'sem-ai connect' first")
 		}
 		c := client.New()
 		resp, err := c.Get("jobs", args[0])
@@ -57,7 +57,7 @@ var jobLogCmd = &cobra.Command{
   sem-ai job log job-uuid-here --format json`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		if !config.IsConfigured() {
-			return fmt.Errorf("not configured — run 'sem-ai connect' first")
+			return fmt.Errorf("not configured; run 'sem-ai connect' first")
 		}
 		c := client.New()
 		resp, err := c.Get("logs", args[0])
@@ -145,7 +145,7 @@ var jobListCmd = &cobra.Command{
   sem-ai job list --states FINISHED`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		if !config.IsConfigured() {
-			return fmt.Errorf("not configured — run 'sem-ai connect' first")
+			return fmt.Errorf("not configured; run 'sem-ai connect' first")
 		}
 		c := client.New()
 		params := url.Values{}
@@ -175,7 +175,7 @@ var jobStopCmd = &cobra.Command{
 	Example: `  sem-ai job stop job-uuid-here`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		if !config.IsConfigured() {
-			return fmt.Errorf("not configured — run 'sem-ai connect' first")
+			return fmt.Errorf("not configured; run 'sem-ai connect' first")
 		}
 		c := client.New()
 		path := fmt.Sprintf("jobs/%s/stop", args[0])

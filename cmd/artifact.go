@@ -18,7 +18,7 @@ import (
 
 var artifactCmd = &cobra.Command{
 	Use:   "artifact",
-	Short: "Artifact operations — list and download build artifacts",
+	Short: "Artifact operations: list and download build artifacts",
 }
 
 var (
@@ -34,7 +34,7 @@ var artifactListCmd = &cobra.Command{
   sem-ai artifact list --scope projects --id <project-id>`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		if !config.IsConfigured() {
-			return fmt.Errorf("not configured — run 'sem-ai connect' first")
+			return fmt.Errorf("not configured; run 'sem-ai connect' first")
 		}
 		if artifactScope == "" || artifactScopeID == "" {
 			output.Error("invalid_args", "--scope and --id are required", 1)
@@ -80,7 +80,7 @@ var artifactGetCmd = &cobra.Command{
   sem-ai artifact get --scope jobs --id <job-id> --path test-results/junit.json --output ./results.json`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		if !config.IsConfigured() {
-			return fmt.Errorf("not configured — run 'sem-ai connect' first")
+			return fmt.Errorf("not configured; run 'sem-ai connect' first")
 		}
 		if artifactGetScope == "" || artifactGetScopeID == "" || artifactGetPath == "" {
 			output.Error("invalid_args", "--scope, --id, and --path are required", 1)

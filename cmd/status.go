@@ -51,7 +51,7 @@ var statusCmd = &cobra.Command{
 	RunE: func(cmd *cobra.Command, args []string) error {
 		statusExitCode = 0
 		if !config.IsConfigured() {
-			return fmt.Errorf("not configured — run 'sem-ai connect' first")
+			return fmt.Errorf("not configured; run 'sem-ai connect' first")
 		}
 
 		// Resolve candidate projects. An explicit --project pins exactly one;
@@ -72,7 +72,7 @@ var statusCmd = &cobra.Command{
 					statusExitCode = exitNoWorkflow
 					return nil
 				}
-				output.Error("context_error", err.Error()+" — use --project", 1)
+				output.Error("context_error", err.Error()+"; use --project", 1)
 				return err
 			}
 			candidates = cands
@@ -140,7 +140,7 @@ var statusCmd = &cobra.Command{
 			}
 			output.Result(map[string]any{
 				"multiple_projects": true,
-				"message": fmt.Sprintf("this repo maps to %d Semaphore projects (%s) that ran this commit — pass --project to pick one",
+				"message": fmt.Sprintf("this repo maps to %d Semaphore projects (%s) that ran this commit; pass --project to pick one",
 					len(found), strings.Join(names, ", ")),
 				"projects": found,
 			})
