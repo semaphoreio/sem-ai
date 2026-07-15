@@ -426,6 +426,64 @@ func TestSignin_RejectsBadOrgHostFlag(t *testing.T) {
 	}
 }
 
+// ── resolveSigninHosts ────────────────────────────────────────────────────────
+
+// TestResolveSigninHosts covers both directions of host resolution: every
+// legitimate arg/flag combo resolves to the right (host, authHost), and the
+// one dangerous combo (--id-host with no [host]) is rejected before any
+// network call, so the token can never be minted against a custom id host and
+// then stored under the Semaphore Cloud default context.
+func TestResolveSigninHosts(t *testing.T) {
+	// Positive: bare signin defaults to Semaphore Cloud for both hosts.
+	if host, authHost, err := resolveSigninHosts(nil, ""); err != nil ||
+		host != defaultSigninHost || authHost != defaultSigninIDHost {
+		t.Errorf("bare signin = (%q, %q, %v), want (%q, %q, nil)",
+			host, authHost, err, defaultSigninHost, defaultSigninIDHost)
+	}
+
+	// Positive: explicit [host], no --id-host — the id host falls back to [host].
+	if host, authHost, err := resolveSigninHosts([]string{"onprem.example.com"}, ""); err != nil ||
+		host != "onprem.example.com" || authHost != "onprem.example.com" {
+		t.Errorf("explicit host = (%q, %q, %v), want (onprem.example.com, onprem.example.com, nil)",
+			host, authHost, err)
+	}
+
+	// Positive: explicit [host] AND --id-host — the token is stored under [host].
+	if host, authHost, err := resolveSigninHosts([]string{"somehost.example.com"}, "id.example.com"); err != nil ||
+		host != "somehost.example.com" || authHost != "id.example.com" {
+		t.Errorf("host + id-host = (%q, %q, %v), want (somehost.example.com, id.example.com, nil)",
+			host, authHost, err)
+	}
+
+	// Negative: --id-host with no [host] must error, before any network call,
+	// rather than silently storing the token under me.semaphoreci.com.
+	_, _, err := resolveSigninHosts(nil, "id.example.com")
+	if err == nil {
+		t.Fatal("expected error for --id-host without [host]")
+	}
+	if !strings.Contains(err.Error(), "--id-host") {
+		t.Errorf("error = %q, want it to mention --id-host", err.Error())
+	}
+}
+
+// TestSignin_IDHostWithoutHost confirms the guard is wired into RunE: an
+// --id-host with no positional [host] fails fast, before any device flow runs.
+func TestSignin_IDHostWithoutHost(t *testing.T) {
+	output.SetWriters(io.Discard, io.Discard)
+	t.Cleanup(func() { output.SetWriters(nil, nil) })
+
+	signinIDHost = "id.example.com"
+	t.Cleanup(func() { signinIDHost = "" })
+
+	err := signinCmd.RunE(signinCmd, []string{})
+	if err == nil {
+		t.Fatal("expected error for --id-host without [host]")
+	}
+	if !strings.Contains(err.Error(), "--id-host") {
+		t.Errorf("error = %q, want it to mention --id-host", err.Error())
+	}
+}
+
 // ── signin command wiring ────────────────────────────────────────────────────
 
 func TestSigninCmd_UseAliasesAndArgs(t *testing.T) {

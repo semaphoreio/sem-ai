@@ -121,9 +121,44 @@ func validateHost(flagName, host string) error {
 		return fmt.Errorf("%s %q is too long to be a hostname", flagName, host)
 	}
 	if !hostnameRe.MatchString(host) {
-		return fmt.Errorf("%s %q is not a valid hostname — expected a bare host like me.semaphoreci.com (no scheme, userinfo, path, port, or query)", flagName, host)
+		return fmt.Errorf("%s %q is not a valid hostname: expected a bare host like me.semaphoreci.com (no scheme, userinfo, path, port, or query)", flagName, host)
 	}
 	return nil
+}
+
+// resolveSigninHosts derives the account host (where the token is stored) and
+// the CLI-auth "id" host (which serves /cli/device and /cli/token) from the
+// positional [host] argument and --id-host, applying the Semaphore Cloud
+// defaults when neither is given.
+//
+// It rejects --id-host without an explicit [host]: the token is stored under
+// [host], so defaulting [host] to me.semaphoreci.com while authenticating
+// against a custom id host would mint a token on one deployment and save it
+// under Semaphore Cloud's context, clobbering whatever token was there.
+func resolveSigninHosts(args []string, idHost string) (host, authHost string, err error) {
+	if idHost != "" && len(args) == 0 {
+		return "", "", errors.New("--id-host requires [host]: the token is stored under [host], and defaulting it to me.semaphoreci.com is almost never right with a custom id host")
+	}
+
+	// Default to Semaphore Cloud; a positional host overrides for on-prem or
+	// other deployments.
+	host = defaultSigninHost
+	if len(args) > 0 {
+		host = args[0]
+	}
+
+	// The CLI-auth endpoints (/cli/device, /cli/token) live on guard. --id-host
+	// overrides; otherwise for the default (Semaphore Cloud) use its guard host,
+	// and for an explicit [host] fall back to that same host.
+	authHost = idHost
+	if authHost == "" {
+		if len(args) == 0 {
+			authHost = defaultSigninIDHost
+		} else {
+			authHost = host
+		}
+	}
+	return host, authHost, nil
 }
 
 var signinCmd = &cobra.Command{
@@ -133,20 +168,20 @@ var signinCmd = &cobra.Command{
 	Long: `Sign in to Semaphore and store the account API token.
 
 Shows a one-time code and a verification URL (opening your browser when one is
-available). Enter the code in the browser, sign in — or create your account
-right there if you don't have one — and approve. The terminal finishes
+available). Enter the code in the browser, sign in (or create your account
+right there if you don't have one), and approve. The terminal finishes
 automatically. 'signup' and 'login' run this same flow.
 
 Defaults to Semaphore Cloud (me.semaphoreci.com). Pass a different [host] (and
 --id-host for the CLI-auth endpoints) for another deployment.
 
 An account has a single API token. If yours already has one, approving the
-sign-in RESETS it after an explicit confirmation in the browser — the previous
+sign-in RESETS it after an explicit confirmation in the browser. The previous
 token immediately stops working everywhere it is used (CI secrets, scripts,
 other machines). To authenticate with an existing token instead, use
 'sem-ai connect <host> <token>'.
 
-With --org, a first organization is created after sign-in — for new accounts
+With --org, a first organization is created after sign-in, for new accounts
 only (skipped with a note when an existing account signs in). The create API
 does not return the new org's host, so pass it with --org-host; that context
 is then made active.`,
@@ -156,11 +191,14 @@ is then made active.`,
   sem-ai signin me.semaphoreci.com --id-host id.semaphoreci.com
   sem-ai signup my-onprem.example.com --org myorg --org-host myorg.example.com`,
 	RunE: func(cmd *cobra.Command, args []string) error {
-		// Default to Semaphore Cloud; a positional host overrides for on-prem
-		// or other deployments.
-		host := defaultSigninHost
-		if len(args) > 0 {
-			host = args[0]
+		// Resolve where the token is stored (host) and which host serves the
+		// CLI-auth endpoints (authHost), applying the Semaphore Cloud defaults.
+		// Also rejects --id-host without an explicit [host], before any network
+		// call.
+		host, authHost, err := resolveSigninHosts(args, signinIDHost)
+		if err != nil {
+			output.Error("signin_error", err.Error(), 1)
+			return err
 		}
 
 		// Reject anything but a bare hostname before touching the network — a
@@ -189,18 +227,6 @@ is then made active.`,
 			err := errors.New("--org requires --org-host: the create API does not return the new org's host, so it must be given explicitly")
 			output.Error("signin_error", err.Error(), 1)
 			return err
-		}
-
-		// The CLI-auth endpoints (/cli/device, /cli/token) live on guard.
-		// --id-host overrides; otherwise for the default (Semaphore Cloud) use
-		// its guard host, and for an explicit [host] fall back to that host.
-		authHost := signinIDHost
-		if authHost == "" {
-			if len(args) == 0 {
-				authHost = defaultSigninIDHost
-			} else {
-				authHost = host
-			}
 		}
 
 		c := &cliAuthClient{
@@ -244,7 +270,7 @@ func finishSignin(tok *tokenResp, host, orgName, orgHost string, orgc *http.Clie
 	}
 
 	if tok.TokenAction == "rotated" {
-		fmt.Fprintf(w, "Signed in to an existing account — skipping organization creation (--org %s). Create organizations from the web app.\n", orgName)
+		fmt.Fprintf(w, "Signed in to an existing account; skipping organization creation (--org %s). Create organizations from the web app.\n", orgName)
 		return saveSigninContext(saveHost, tok.Token, tok.TokenAction)
 	}
 
@@ -398,7 +424,7 @@ func runDeviceFlow(c *cliAuthClient, w io.Writer, sleep func(time.Duration), att
 		fmt.Fprintf(w, "Open %s in a browser and enter the code.\n", da.VerificationURI)
 	}
 
-	fmt.Fprintln(w, "Sign in there — or create your account — then approve. Waiting...")
+	fmt.Fprintln(w, "Sign in there (or create your account), then approve. Waiting...")
 
 	interval := time.Duration(da.Interval) * time.Second
 	if interval < minPollInterval {
@@ -418,7 +444,7 @@ func runDeviceFlow(c *cliAuthClient, w io.Writer, sleep func(time.Duration), att
 	// Poll immediately (paced by interval) — never gate on a keypress.
 	for {
 		if time.Now().After(deadline) {
-			return nil, fmt.Errorf("the sign-in request expired before it was approved — run `sem-ai signin` again")
+			return nil, fmt.Errorf("the sign-in request expired before it was approved; run `sem-ai signin` again")
 		}
 		sleep(interval)
 
@@ -439,7 +465,7 @@ func runDeviceFlow(c *cliAuthClient, w io.Writer, sleep func(time.Duration), att
 		case "access_denied":
 			return nil, fmt.Errorf("sign-in was denied in the browser; nothing was changed")
 		case "expired_token":
-			return nil, fmt.Errorf("the sign-in request expired before it was approved — run `sem-ai signin` again")
+			return nil, fmt.Errorf("the sign-in request expired before it was approved; run `sem-ai signin` again")
 		case "token_exists":
 			// Consent said "mint" but a token appeared on the account before
 			// the poll redeemed the code; the server message says to re-run.
