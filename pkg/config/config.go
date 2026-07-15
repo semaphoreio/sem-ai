@@ -2,9 +2,15 @@ package config
 
 import (
 	"fmt"
+	"os"
 	"sort"
 
 	"github.com/spf13/viper"
+)
+
+const (
+	EnvToken = "SEMAPHORE_API_TOKEN"
+	EnvHost  = "SEMAPHORE_HOST"
 )
 
 var cfg *Config
@@ -16,8 +22,8 @@ type Context struct {
 
 type Config struct {
 	ActiveContext string
-	Token        string
-	Host         string
+	Token         string
+	Host          string
 }
 
 func Load() {
@@ -27,11 +33,21 @@ func Load() {
 		cfg.Token = viper.GetString(fmt.Sprintf("contexts.%s.auth.token", cfg.ActiveContext))
 		cfg.Host = viper.GetString(fmt.Sprintf("contexts.%s.host", cfg.ActiveContext))
 	}
+
+	if t := os.Getenv(EnvToken); t != "" {
+		cfg.Token = t
+	}
+	if h := os.Getenv(EnvHost); h != "" {
+		cfg.Host = h
+		if cfg.ActiveContext == "" {
+			cfg.ActiveContext = "env"
+		}
+	}
 }
 
 func GetActiveContext() string { return cfg.ActiveContext }
-func GetToken() string        { return cfg.Token }
-func GetHost() string         { return cfg.Host }
+func GetToken() string         { return cfg.Token }
+func GetHost() string          { return cfg.Host }
 
 func ContextList() ([]Context, error) {
 	raw := viper.GetStringMap("contexts")

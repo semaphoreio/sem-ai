@@ -34,6 +34,8 @@ blocks:
             - cache restore go-mod-$(checksum go.sum),go-mod-main
             - cache restore go-build-$SEMAPHORE_GIT_BRANCH,go-build-main
             - export GITHUB_TOKEN="$GITHUB_TOKEN_PAT"
+            - sem-version node 20
+            - npm install -g @anthropic-ai/mcpb
             - curl -sfL https://goreleaser.com/static/run -o /tmp/goreleaser-run
             - chmod +x /tmp/goreleaser-run
             - /tmp/goreleaser-run release --clean --skip=before

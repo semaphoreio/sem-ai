@@ -10,6 +10,7 @@
 #   .claude-plugin/marketplace.json        (.plugins[0].version)
 #   assets/plugin/plugin.json              (.version)
 #   assets/plugin/.codex-plugin/plugin.json (.version)
+#   mcpb/manifest.json                     (.version)
 #
 # Exits non-zero on any mismatch with a clear diagnostic.
 
@@ -18,8 +19,9 @@ set -euo pipefail
 MARKETPLACE=".claude-plugin/marketplace.json"
 PLUGIN="assets/plugin/plugin.json"
 CODEX="assets/plugin/.codex-plugin/plugin.json"
+MCPB="mcpb/manifest.json"
 
-for f in "$MARKETPLACE" "$PLUGIN" "$CODEX"; do
+for f in "$MARKETPLACE" "$PLUGIN" "$CODEX" "$MCPB"; do
   if [[ ! -f "$f" ]]; then
     echo "ERROR: run from repo root — missing $f" >&2
     exit 2
@@ -34,12 +36,14 @@ fi
 market_ver=$(yq -p json -o tsv '.plugins[0].version' "$MARKETPLACE")
 plugin_ver=$(yq -p json -o tsv '.version' "$PLUGIN")
 codex_ver=$(yq -p json -o tsv '.version' "$CODEX")
+mcpb_ver=$(yq -p json -o tsv '.version' "$MCPB")
 
-if [[ "$market_ver" != "$plugin_ver" || "$market_ver" != "$codex_ver" ]]; then
+if [[ "$market_ver" != "$plugin_ver" || "$market_ver" != "$codex_ver" || "$market_ver" != "$mcpb_ver" ]]; then
   echo "FAIL: plugin manifest versions disagree" >&2
   echo "  $MARKETPLACE  → $market_ver" >&2
   echo "  $PLUGIN       → $plugin_ver" >&2
   echo "  $CODEX        → $codex_ver" >&2
+  echo "  $MCPB         → $mcpb_ver" >&2
   echo "  bump all with: make release VERSION=<X.Y.Z>" >&2
   exit 1
 fi

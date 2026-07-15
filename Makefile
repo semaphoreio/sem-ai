@@ -5,7 +5,7 @@ DATE      := $(shell date -u +%Y-%m-%dT%H:%M:%SZ)
 LDFLAGS   := -X main.version=$(VERSION) -X main.commit=$(COMMIT) -X main.date=$(DATE)
 INSTALL   := /usr/local/bin
 
-.PHONY: build install uninstall clean test fmt vet release tag check-versions
+.PHONY: build install uninstall clean test fmt vet mcpb release tag check-versions
 
 build:
 	go build -ldflags "$(LDFLAGS)" -o $(BINARY) .
@@ -30,7 +30,13 @@ fmt:
 vet:
 	go vet ./...
 
-# Check plugin manifests are consistent (all three carry the same version).
+# Build a local MCPB (.mcpb) bundle for the current platform into dist/.
+# Requires node — uses the official `mcpb` packer (npx fetches it if absent).
+#   make mcpb
+mcpb: build
+	@./scripts/mcpb-pack.sh "$(BINARY)" "$$(go env GOOS)" "$$(go env GOARCH)" dev
+
+# Check plugin manifests are consistent (all four carry the same version).
 #   make check-versions            # files match each other
 #   make check-versions TAG=0.1.8  # files also match the given tag
 check-versions:
