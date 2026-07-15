@@ -329,6 +329,26 @@ sem-ai context list                               # list all orgs
 sem-ai context show                               # show active org
 ```
 
+### Pinning a context per invocation
+
+`context switch` writes the shared `active-context` key in `~/.sem.yaml`, so concurrent sessions (e.g. multiple agents on one machine) can flip each other's context mid-run. To pin a context without touching the file, pass `--context` on any command or set `SEM_CONTEXT`:
+
+```shell
+sem-ai --context myorg_semaphoreci_com project list   # this invocation only
+SEM_CONTEXT=myorg_semaphoreci_com sem-ai status       # whole session/agent
+```
+
+Resolution precedence:
+
+1. `--context` flag (named context, read-only)
+2. `SEM_CONTEXT` env (named context, read-only)
+3. `SEMAPHORE_HOST` / `SEMAPHORE_API_TOKEN` env (raw credentials, no config file needed)
+4. `active-context` from `~/.sem.yaml`
+
+An explicit selector (1 or 2) fully shadows everything below it — no mixing of context credentials with env credentials. Without a selector, the raw env vars override the active context's values field by field.
+
+An unknown context name fails hard and lists the available contexts.
+
 ## Development
 
 ```shell

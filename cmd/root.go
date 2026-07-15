@@ -24,6 +24,7 @@ var (
 	formatFlag   string
 	verboseFlag  bool
 	examplesFlag bool
+	contextFlag  string
 
 	errExamplesShown = fmt.Errorf("examples shown")
 
@@ -134,6 +135,7 @@ func init() {
 	rootCmd.PersistentFlags().StringVarP(&formatFlag, "format", "f", "json", "output format: json, table, yaml")
 	rootCmd.PersistentFlags().BoolVarP(&verboseFlag, "verbose", "v", false, "verbose output (show HTTP requests)")
 	rootCmd.PersistentFlags().BoolVar(&examplesFlag, "examples", false, "show command examples and exit")
+	rootCmd.PersistentFlags().StringVar(&contextFlag, "context", "", "named context from ~/.sem.yaml to use for this invocation (overrides SEM_CONTEXT and the active context, read-only)")
 }
 
 func initConfig() {
@@ -157,5 +159,9 @@ func initConfig() {
 		log.Printf("warning: could not read config: %v", err)
 	}
 
-	config.Load()
+	config.SetExplicitContext(contextFlag)
+	if err := config.Load(); err != nil {
+		fmt.Fprintln(os.Stderr, "Error:", err)
+		os.Exit(1)
+	}
 }

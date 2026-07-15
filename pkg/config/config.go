@@ -4,16 +4,24 @@ import (
 	"fmt"
 	"os"
 	"sort"
+	"strings"
 
 	"github.com/spf13/viper"
 )
 
 const (
-	EnvToken = "SEMAPHORE_API_TOKEN"
-	EnvHost  = "SEMAPHORE_HOST"
+	EnvToken   = "SEMAPHORE_API_TOKEN"
+	EnvHost    = "SEMAPHORE_HOST"
+	EnvContext = "SEM_CONTEXT"
 )
 
 var cfg *Config
+
+// explicitContext pins the invocation to a named context (--context flag).
+// An explicit selector — flag or SEM_CONTEXT — resolves read-only and fully
+// shadows the credential env vars and the shared active-context key, so
+// concurrent invocations can't flip each other's context via ~/.sem.yaml.
+var explicitContext string
 
 type Context struct {
 	Name string `json:"name"`
@@ -26,8 +34,29 @@ type Config struct {
 	Host          string
 }
 
-func Load() {
+func SetExplicitContext(name string) { explicitContext = name }
+
+func Load() error {
 	cfg = &Config{}
+
+	name := explicitContext
+	source := "--context"
+	if name == "" {
+		name = os.Getenv(EnvContext)
+		source = EnvContext
+	}
+	if name != "" {
+		token := viper.GetString(fmt.Sprintf("contexts.%s.auth.token", name))
+		host := viper.GetString(fmt.Sprintf("contexts.%s.host", name))
+		if token == "" && host == "" {
+			return fmt.Errorf("context %q (from %s) not found in ~/.sem.yaml (available: %s)", name, source, availableContexts())
+		}
+		cfg.ActiveContext = name
+		cfg.Token = token
+		cfg.Host = host
+		return nil
+	}
+
 	cfg.ActiveContext = viper.GetString("active-context")
 	if cfg.ActiveContext != "" {
 		cfg.Token = viper.GetString(fmt.Sprintf("contexts.%s.auth.token", cfg.ActiveContext))
@@ -43,6 +72,19 @@ func Load() {
 			cfg.ActiveContext = "env"
 		}
 	}
+	return nil
+}
+
+func availableContexts() string {
+	contexts, err := ContextList()
+	if err != nil || len(contexts) == 0 {
+		return "none"
+	}
+	names := make([]string, 0, len(contexts))
+	for _, c := range contexts {
+		names = append(names, c.Name)
+	}
+	return strings.Join(names, ", ")
 }
 
 func GetActiveContext() string { return cfg.ActiveContext }
