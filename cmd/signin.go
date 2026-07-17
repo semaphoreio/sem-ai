@@ -71,10 +71,11 @@ const (
 )
 
 var (
-	signinForceDevice bool
-	signinIDHost      string
-	signinOrgName     string
-	signinOrgHost     string
+	signinForceDevice  bool
+	signinForceBrowser bool
+	signinIDHost       string
+	signinOrgName      string
+	signinOrgHost      string
 )
 
 // isHeadless reports whether opening a browser is pointless (SSH session, no
@@ -98,6 +99,20 @@ var isHeadless = func(force bool) bool {
 		return true
 	}
 	return false
+}
+
+// shouldAttemptBrowser resolves whether signin tries to open the verification
+// page in a browser. --browser forces the attempt: the TTY/SSH/display
+// heuristic exists to guess whether a human can see a browser window, and the
+// flag is the human saying "yes, I can" (e.g. an agent driving the CLI with
+// stderr piped, while a person watches the screen). --headless/--device force
+// it off. Passing both is rejected up front in RunE, so no silent precedence
+// is ever applied here.
+func shouldAttemptBrowser(forceBrowser, forceHeadless bool) bool {
+	if forceBrowser {
+		return true
+	}
+	return !isHeadless(forceHeadless)
 }
 
 // hostnameRe allowlists bare hostnames (RFC 1123 labels, dot-separated).
@@ -229,6 +244,14 @@ is then made active.`,
 			return err
 		}
 
+		// The two browser-open overrides contradict each other; refuse the
+		// combo up front instead of silently picking a winner.
+		if signinForceBrowser && signinForceDevice {
+			err := errors.New("--browser cannot be combined with --headless/--device: one forces the browser open, the other suppresses it")
+			output.Error("signin_error", err.Error(), 1)
+			return err
+		}
+
 		c := &cliAuthClient{
 			baseURL: "https://" + authHost,
 			http:    &http.Client{Timeout: cliAuthHTTPTimeout},
@@ -242,7 +265,7 @@ is then made active.`,
 		fmt.Fprintln(w, "lets you reset it (you confirm in the browser first). A reset token stops")
 		fmt.Fprintln(w, "working everywhere it is used: CI secrets, scripts, other machines.")
 
-		tok, err := runDeviceFlow(c, w, time.Sleep, !isHeadless(signinForceDevice))
+		tok, err := runDeviceFlow(c, w, time.Sleep, shouldAttemptBrowser(signinForceBrowser, signinForceDevice))
 		if err != nil {
 			output.Error("signin_error", err.Error(), 1)
 			return err
@@ -606,6 +629,7 @@ func contextNameForHost(host string) string {
 func init() {
 	signinCmd.Flags().BoolVar(&signinForceDevice, "headless", false, "never try to open a browser; just print the code and URL")
 	signinCmd.Flags().BoolVar(&signinForceDevice, "device", false, "alias for --headless")
+	signinCmd.Flags().BoolVar(&signinForceBrowser, "browser", false, "open the verification page in a browser even when the terminal looks non-interactive")
 	signinCmd.Flags().StringVar(&signinIDHost, "id-host", "", "host serving the CLI-auth endpoints (defaults to <host>)")
 	signinCmd.Flags().StringVar(&signinOrgName, "org", "", "also create a first organization with this name (new accounts only)")
 	signinCmd.Flags().StringVar(&signinOrgHost, "org-host", "", "host for the --org organization's context (the create API does not return it)")

@@ -339,6 +339,131 @@ func TestIsHeadless_InteractiveDesktopOpensBrowser(t *testing.T) {
 	}
 }
 
+// ── --browser: forcing the browser open ──────────────────────────────────────
+
+// noTTYHeadlessEnv simulates the agent-driving-the-CLI environment: no SSH,
+// a display present, but stderr is not a TTY, so the heuristic says headless.
+func noTTYHeadlessEnv(t *testing.T) {
+	t.Helper()
+	t.Setenv("SSH_TTY", "")
+	t.Setenv("SSH_CONNECTION", "")
+	t.Setenv("DISPLAY", "not-empty")
+	t.Setenv("WAYLAND_DISPLAY", "")
+
+	orig := stderrIsTTY
+	stderrIsTTY = func() bool { return false }
+	t.Cleanup(func() { stderrIsTTY = orig })
+}
+
+// TestShouldAttemptBrowser_ForceWinsOverHeuristic covers the working
+// direction: --browser forces the attempt even when the environment reads as
+// headless (the exact agent-native case the flag exists for).
+func TestShouldAttemptBrowser_ForceWinsOverHeuristic(t *testing.T) {
+	noTTYHeadlessEnv(t)
+
+	if !shouldAttemptBrowser(true, false) {
+		t.Error("--browser should force the attempt despite a headless-looking environment")
+	}
+}
+
+// TestShouldAttemptBrowser_DefaultStillSkips covers the failing-correctly
+// direction: without --browser the headless heuristic keeps suppressing the
+// attempt, and --headless still forces it off on a real desktop.
+func TestShouldAttemptBrowser_DefaultStillSkips(t *testing.T) {
+	noTTYHeadlessEnv(t)
+
+	if shouldAttemptBrowser(false, false) {
+		t.Error("without --browser, a no-TTY environment must still skip the browser")
+	}
+
+	// Interactive desktop, but --headless set: stays off.
+	orig := stderrIsTTY
+	stderrIsTTY = func() bool { return true }
+	t.Cleanup(func() { stderrIsTTY = orig })
+
+	if shouldAttemptBrowser(false, true) {
+		t.Error("--headless must keep suppressing the browser on an interactive desktop")
+	}
+}
+
+// TestRunDeviceFlow_ForcedBrowserOpens pins the plumbing below the flag: with
+// the attempt forced on, openBrowser is called with the verification URL and
+// the output uses the "Opened ..." wording.
+func TestRunDeviceFlow_ForcedBrowserOpens(t *testing.T) {
+	srv, _ := newDeviceServer(t, []tokenStep{
+		{200, `{"token":"tok-1","host":null,"token_action":"minted"}`},
+	})
+
+	var openedURL string
+	orig := openBrowser
+	openBrowser = func(url string) error {
+		openedURL = url
+		return nil
+	}
+	t.Cleanup(func() { openBrowser = orig })
+
+	var buf strings.Builder
+	_, err := runDeviceFlow(newClient(srv), &buf, noSleep, true)
+	if err != nil {
+		t.Fatalf("runDeviceFlow: %v", err)
+	}
+
+	if openedURL != "https://id.example.com/device?user_code=BCDF-GHJK" {
+		t.Errorf("openBrowser called with %q, want the complete verification URL", openedURL)
+	}
+	if !strings.Contains(buf.String(), "Opened https://id.example.com/device in your browser.") {
+		t.Errorf("output should use the opened-browser wording, got:\n%s", buf.String())
+	}
+}
+
+// TestRunDeviceFlow_NoAttemptKeepsManualWording: with the attempt off,
+// openBrowser is never called and the manual wording is printed.
+func TestRunDeviceFlow_NoAttemptKeepsManualWording(t *testing.T) {
+	srv, _ := newDeviceServer(t, []tokenStep{
+		{200, `{"token":"tok-1","host":null,"token_action":"minted"}`},
+	})
+
+	called := false
+	orig := openBrowser
+	openBrowser = func(string) error {
+		called = true
+		return nil
+	}
+	t.Cleanup(func() { openBrowser = orig })
+
+	var buf strings.Builder
+	_, err := runDeviceFlow(newClient(srv), &buf, noSleep, noBrowser)
+	if err != nil {
+		t.Fatalf("runDeviceFlow: %v", err)
+	}
+
+	if called {
+		t.Error("openBrowser must not be called when the attempt is off")
+	}
+	if !strings.Contains(buf.String(), "Open https://id.example.com/device in a browser and enter the code.") {
+		t.Errorf("output should use the manual wording, got:\n%s", buf.String())
+	}
+}
+
+// TestSignin_BrowserConflictsWithHeadless confirms the contradictory combo
+// fails fast in RunE, before any network call.
+func TestSignin_BrowserConflictsWithHeadless(t *testing.T) {
+	output.SetWriters(io.Discard, io.Discard)
+	t.Cleanup(func() { output.SetWriters(nil, nil) })
+
+	signinForceBrowser = true
+	signinForceDevice = true
+	t.Cleanup(func() { signinForceBrowser, signinForceDevice = false, false })
+
+	err := signinCmd.RunE(signinCmd, []string{"me.example.com"})
+	if err == nil {
+		t.Fatal("expected error when --browser is combined with --headless")
+	}
+	if !strings.Contains(err.Error(), "--browser") || !strings.Contains(err.Error(), "--headless") {
+		t.Errorf("error = %q, want it to name both flags", err.Error())
+	}
+}
+
 // ── validateHost ──────────────────────────────────────────────────────────────
 
 func TestValidateHost_AcceptsBareHostnames(t *testing.T) {
