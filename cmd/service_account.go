@@ -114,7 +114,10 @@ var serviceAccountUpdateCmd = &cobra.Command{
 			var existing struct {
 				Name string `json:"name"`
 			}
-			json.Unmarshal(cur.Body, &existing)
+			if err := json.Unmarshal(cur.Body, &existing); err != nil {
+				output.Error("parse_error", fmt.Sprintf("could not parse service account: %s", err.Error()), 1)
+				return fmt.Errorf("could not parse service account %q: %w", args[0], err)
+			}
 			body["name"] = existing.Name
 		}
 		bodyBytes, _ := json.Marshal(body)

@@ -463,6 +463,24 @@ func TestServiceAccountUpdate_DescriptionOnly_PreservesName(t *testing.T) {
 	}
 }
 
+func TestServiceAccountUpdate_MalformedFetch_ErrorsAndNoPatch(t *testing.T) {
+	reqs, _, _ := apiMock(t, func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == "GET" && r.URL.Path == "/api/v1alpha/service_accounts/sa1" {
+			w.WriteHeader(200)
+			_, _ = w.Write([]byte("not json"))
+			return
+		}
+		writeJSON(w, 500, nil)
+	})
+	saUpdateDescFlag = "new description"
+	if err := serviceAccountUpdateCmd.RunE(serviceAccountUpdateCmd, []string{"sa1"}); err == nil {
+		t.Fatal("expected error when the current service account can't be parsed, got nil")
+	}
+	if n := count(reqs, "PATCH", "/api/v1alpha/service_accounts/sa1"); n != 0 {
+		t.Errorf("must NOT PATCH when the fetch is unparseable (would blank the name); got %d PATCHes", n)
+	}
+}
+
 func TestServiceAccountUpdate_NothingToUpdate_Errors(t *testing.T) {
 	reqs, _, _ := apiMock(t, func(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, 500, nil) // should never be hit
