@@ -92,6 +92,14 @@ func Error(code string, message string, status int) {
 // Reported reports whether Error has been called this invocation.
 func Reported() bool { return reported }
 
+// Warn writes a non-fatal advisory line to stderr. Unlike Error it does not
+// mark the invocation as reported and does not affect the exit code — it is for
+// surfacing partial successes (e.g. an invite that landed but whose requested
+// role was not applied) without turning them into failures.
+func Warn(message string) {
+	fmt.Fprintln(stderr, message)
+}
+
 // printTable handles any data by marshal/unmarshal to normalize types.
 func printTable(data any) {
 	b, err := json.Marshal(data)

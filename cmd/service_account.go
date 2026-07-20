@@ -29,14 +29,7 @@ var serviceAccountListCmd = &cobra.Command{
 			output.Error("api_error", err.Error(), 1)
 			return err
 		}
-		if resp.StatusCode != 200 {
-			output.Error("api_error", fmt.Sprintf("HTTP %d: %s", resp.StatusCode, string(resp.Body)), resp.StatusCode)
-			return fmt.Errorf("API returned %d", resp.StatusCode)
-		}
-		var result any
-		json.Unmarshal(resp.Body, &result)
-		output.Result(result)
-		return nil
+		return emitJSON(resp)
 	},
 }
 
@@ -61,14 +54,7 @@ var serviceAccountCreateCmd = &cobra.Command{
 			output.Error("api_error", err.Error(), 1)
 			return err
 		}
-		if resp.StatusCode != 200 && resp.StatusCode != 201 {
-			output.Error("api_error", fmt.Sprintf("HTTP %d: %s", resp.StatusCode, string(resp.Body)), resp.StatusCode)
-			return fmt.Errorf("API returned %d", resp.StatusCode)
-		}
-		var result any
-		json.Unmarshal(resp.Body, &result)
-		output.Result(result)
-		return nil
+		return emitJSON(resp)
 	},
 }
 
@@ -87,14 +73,7 @@ var serviceAccountShowCmd = &cobra.Command{
 			output.Error("api_error", err.Error(), 1)
 			return err
 		}
-		if resp.StatusCode != 200 {
-			output.Error("api_error", fmt.Sprintf("HTTP %d: %s", resp.StatusCode, string(resp.Body)), resp.StatusCode)
-			return fmt.Errorf("API returned %d", resp.StatusCode)
-		}
-		var result any
-		json.Unmarshal(resp.Body, &result)
-		output.Result(result)
-		return nil
+		return emitJSON(resp)
 	},
 }
 
@@ -144,14 +123,7 @@ var serviceAccountUpdateCmd = &cobra.Command{
 			output.Error("api_error", err.Error(), 1)
 			return err
 		}
-		if resp.StatusCode != 200 {
-			output.Error("api_error", fmt.Sprintf("HTTP %d: %s", resp.StatusCode, string(resp.Body)), resp.StatusCode)
-			return fmt.Errorf("API returned %d", resp.StatusCode)
-		}
-		var result any
-		json.Unmarshal(resp.Body, &result)
-		output.Result(result)
-		return nil
+		return emitJSON(resp)
 	},
 }
 
@@ -245,14 +217,7 @@ var serviceAccountRegenerateTokenCmd = &cobra.Command{
 			output.Error("api_error", err.Error(), 1)
 			return err
 		}
-		if resp.StatusCode != 200 {
-			output.Error("api_error", fmt.Sprintf("HTTP %d: %s", resp.StatusCode, string(resp.Body)), resp.StatusCode)
-			return fmt.Errorf("API returned %d", resp.StatusCode)
-		}
-		var result any
-		json.Unmarshal(resp.Body, &result)
-		output.Result(result)
-		return nil
+		return emitJSON(resp)
 	},
 }
 

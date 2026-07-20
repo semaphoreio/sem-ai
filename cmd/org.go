@@ -42,14 +42,7 @@ var orgMemberListCmd = &cobra.Command{
 			output.Error("api_error", err.Error(), 1)
 			return err
 		}
-		if resp.StatusCode != 200 {
-			output.Error("api_error", fmt.Sprintf("HTTP %d: %s", resp.StatusCode, string(resp.Body)), resp.StatusCode)
-			return fmt.Errorf("API returned %d", resp.StatusCode)
-		}
-		var result any
-		json.Unmarshal(resp.Body, &result)
-		output.Result(result)
-		return nil
+		return emitJSON(resp)
 	},
 }
 
@@ -72,14 +65,7 @@ var orgRoleListCmd = &cobra.Command{
 			output.Error("api_error", err.Error(), 1)
 			return err
 		}
-		if resp.StatusCode != 200 {
-			output.Error("api_error", fmt.Sprintf("HTTP %d: %s", resp.StatusCode, string(resp.Body)), resp.StatusCode)
-			return fmt.Errorf("API returned %d", resp.StatusCode)
-		}
-		var result any
-		json.Unmarshal(resp.Body, &result)
-		output.Result(result)
-		return nil
+		return emitJSON(resp)
 	},
 }
 
@@ -98,14 +84,7 @@ var orgRoleShowCmd = &cobra.Command{
 			output.Error("api_error", err.Error(), 1)
 			return err
 		}
-		if resp.StatusCode != 200 {
-			output.Error("api_error", fmt.Sprintf("HTTP %d: %s", resp.StatusCode, string(resp.Body)), resp.StatusCode)
-			return fmt.Errorf("API returned %d", resp.StatusCode)
-		}
-		var result any
-		json.Unmarshal(resp.Body, &result)
-		output.Result(result)
-		return nil
+		return emitJSON(resp)
 	},
 }
 
@@ -132,14 +111,7 @@ var orgRoleCreateCmd = &cobra.Command{
 			output.Error("api_error", err.Error(), 1)
 			return err
 		}
-		if resp.StatusCode != 200 && resp.StatusCode != 201 {
-			output.Error("api_error", fmt.Sprintf("HTTP %d: %s", resp.StatusCode, string(resp.Body)), resp.StatusCode)
-			return fmt.Errorf("API returned %d", resp.StatusCode)
-		}
-		var result any
-		json.Unmarshal(resp.Body, &result)
-		output.Result(result)
-		return nil
+		return emitJSON(resp)
 	},
 }
 
@@ -169,14 +141,7 @@ var orgRoleUpdateCmd = &cobra.Command{
 			output.Error("api_error", err.Error(), 1)
 			return err
 		}
-		if resp.StatusCode != 200 {
-			output.Error("api_error", fmt.Sprintf("HTTP %d: %s", resp.StatusCode, string(resp.Body)), resp.StatusCode)
-			return fmt.Errorf("API returned %d", resp.StatusCode)
-		}
-		var result any
-		json.Unmarshal(resp.Body, &result)
-		output.Result(result)
-		return nil
+		return emitJSON(resp)
 	},
 }
 
@@ -222,14 +187,7 @@ var memberSetRoleCmd = &cobra.Command{
 			output.Error("api_error", err.Error(), 1)
 			return err
 		}
-		if resp.StatusCode != 200 {
-			output.Error("api_error", fmt.Sprintf("HTTP %d: %s", resp.StatusCode, string(resp.Body)), resp.StatusCode)
-			return fmt.Errorf("API returned %d", resp.StatusCode)
-		}
-		var result any
-		json.Unmarshal(resp.Body, &result)
-		output.Result(result)
-		return nil
+		return emitJSON(resp)
 	},
 }
 
@@ -248,14 +206,7 @@ var memberRemoveCmd = &cobra.Command{
 			output.Error("api_error", err.Error(), 1)
 			return err
 		}
-		if resp.StatusCode != 200 {
-			output.Error("api_error", fmt.Sprintf("HTTP %d: %s", resp.StatusCode, string(resp.Body)), resp.StatusCode)
-			return fmt.Errorf("API returned %d", resp.StatusCode)
-		}
-		var result any
-		json.Unmarshal(resp.Body, &result)
-		output.Result(result)
-		return nil
+		return emitJSON(resp)
 	},
 }
 
@@ -296,14 +247,24 @@ var memberAddCmd = &cobra.Command{
 			output.Error("api_error", err.Error(), 1)
 			return err
 		}
-		if resp.StatusCode != 200 && resp.StatusCode != 201 {
-			output.Error("api_error", fmt.Sprintf("HTTP %d: %s", resp.StatusCode, string(resp.Body)), resp.StatusCode)
-			return fmt.Errorf("API returned %d", resp.StatusCode)
+		// The invite is created even when the requested role could not be applied:
+		// the server returns 200 with role.status set to "denied"/"pending"/
+		// "defaulted_to_member" rather than failing. Surface that so a requested
+		// --role that did not take effect is not mistaken for success.
+		if resp.StatusCode == 200 && memberAddRoleFlag != "" {
+			var parsed struct {
+				Role struct {
+					Status string `json:"status"`
+				} `json:"role"`
+			}
+			if json.Unmarshal(resp.Body, &parsed) == nil {
+				switch parsed.Role.Status {
+				case "denied", "pending", "defaulted_to_member":
+					output.Warn(fmt.Sprintf("warning: member invited, but the requested role was not applied (status: %q)", parsed.Role.Status))
+				}
+			}
 		}
-		var result any
-		json.Unmarshal(resp.Body, &result)
-		output.Result(result)
-		return nil
+		return emitJSON(resp)
 	},
 }
 

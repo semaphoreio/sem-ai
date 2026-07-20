@@ -97,6 +97,26 @@ func NewWithConfig(token, host string) *Client {
 	}
 }
 
+// baseURLOverride, when non-empty, replaces the "https://<host>" prefix on every
+// request URL built by apiURL. It exists so tests can point the client at an
+// httptest.Server (which serves plain http on 127.0.0.1). Empty in normal use.
+var baseURLOverride string
+
+// SetBaseURLForTest overrides the API base URL (scheme + host, no trailing slash)
+// for all clients created afterward, e.g. an httptest.Server URL. Pass "" to
+// restore the default https://<host> behavior. Test-only seam.
+func SetBaseURLForTest(u string) { baseURLOverride = u }
+
+// apiURL builds the full request URL for a path under /api/<version>/. The path
+// may include a query string. It honors baseURLOverride when set.
+func (c *Client) apiURL(path string) string {
+	base := fmt.Sprintf("https://%s", c.host)
+	if baseURLOverride != "" {
+		base = baseURLOverride
+	}
+	return fmt.Sprintf("%s/api/%s/%s", base, c.apiVersion, path)
+}
+
 // Response wraps API response data.
 type Response struct {
 	Body       []byte
@@ -106,20 +126,17 @@ type Response struct {
 
 // Get fetches a single resource: GET /api/{version}/{kind}/{id}
 func (c *Client) Get(kind, id string) (*Response, error) {
-	u := fmt.Sprintf("https://%s/api/%s/%s/%s", c.host, c.apiVersion, kind, id)
-	return c.doWithRetry("GET", u, nil)
+	return c.doWithRetry("GET", c.apiURL(fmt.Sprintf("%s/%s", kind, id)), nil)
 }
 
 // List fetches a collection: GET /api/{version}/{kind}
 func (c *Client) List(kind string) (*Response, error) {
-	u := fmt.Sprintf("https://%s/api/%s/%s", c.host, c.apiVersion, kind)
-	return c.doWithRetry("GET", u, nil)
+	return c.doWithRetry("GET", c.apiURL(kind), nil)
 }
 
 // ListWithParams fetches with query params, returns headers for pagination.
 func (c *Client) ListWithParams(kind string, params url.Values) (*Response, error) {
-	u := fmt.Sprintf("https://%s/api/%s/%s?%s", c.host, c.apiVersion, kind, params.Encode())
-	return c.doWithRetry("GET", u, nil)
+	return c.doWithRetry("GET", c.apiURL(fmt.Sprintf("%s?%s", kind, params.Encode())), nil)
 }
 
 // ListAll auto-paginates using link header (rel="next") or x-has-more.
@@ -193,14 +210,12 @@ func hasNextPage(link string) bool {
 
 // Post sends a POST request.
 func (c *Client) Post(kind string, body []byte) (*Response, error) {
-	u := fmt.Sprintf("https://%s/api/%s/%s", c.host, c.apiVersion, kind)
-	return c.doWithRetry("POST", u, body)
+	return c.doWithRetry("POST", c.apiURL(kind), body)
 }
 
 // Put sends a PUT request.
 func (c *Client) Put(path string, body []byte) (*Response, error) {
-	u := fmt.Sprintf("https://%s/api/%s/%s", c.host, c.apiVersion, path)
-	return c.doWithRetry("PUT", u, body)
+	return c.doWithRetry("PUT", c.apiURL(path), body)
 }
 
 // PostAction sends POST to /api/{version}/{kind}/{id}/{action}
@@ -211,20 +226,17 @@ func (c *Client) PostAction(kind, id, action string, body []byte) (*Response, er
 
 // Patch sends a PATCH request.
 func (c *Client) Patch(kind, id string, body []byte) (*Response, error) {
-	u := fmt.Sprintf("https://%s/api/%s/%s/%s", c.host, c.apiVersion, kind, id)
-	return c.doWithRetry("PATCH", u, body)
+	return c.doWithRetry("PATCH", c.apiURL(fmt.Sprintf("%s/%s", kind, id)), body)
 }
 
 // Delete sends a DELETE request.
 func (c *Client) Delete(kind, id string) (*Response, error) {
-	u := fmt.Sprintf("https://%s/api/%s/%s/%s", c.host, c.apiVersion, kind, id)
-	return c.doWithRetry("DELETE", u, nil)
+	return c.doWithRetry("DELETE", c.apiURL(fmt.Sprintf("%s/%s", kind, id)), nil)
 }
 
 // DeletePath sends a DELETE request to a custom path under /api/{version}/.
 func (c *Client) DeletePath(path string) (*Response, error) {
-	u := fmt.Sprintf("https://%s/api/%s/%s", c.host, c.apiVersion, path)
-	return c.doWithRetry("DELETE", u, nil)
+	return c.doWithRetry("DELETE", c.apiURL(path), nil)
 }
 
 // DeleteWithParams sends a DELETE request with query parameters.

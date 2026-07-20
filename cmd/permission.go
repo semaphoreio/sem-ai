@@ -1,7 +1,6 @@
 package cmd
 
 import (
-	"encoding/json"
 	"fmt"
 	"net/url"
 
@@ -43,14 +42,7 @@ var permissionListCmd = &cobra.Command{
 			output.Error("api_error", err.Error(), 1)
 			return err
 		}
-		if resp.StatusCode != 200 {
-			output.Error("api_error", fmt.Sprintf("HTTP %d: %s", resp.StatusCode, string(resp.Body)), resp.StatusCode)
-			return fmt.Errorf("API returned %d", resp.StatusCode)
-		}
-		var result any
-		json.Unmarshal(resp.Body, &result)
-		output.Result(result)
-		return nil
+		return emitJSON(resp)
 	},
 }
 
