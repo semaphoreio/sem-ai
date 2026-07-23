@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/url"
+	"time"
 
 	"github.com/semaphoreio/sem-ai/pkg/client"
 	"github.com/semaphoreio/sem-ai/pkg/config"
@@ -19,13 +20,50 @@ var workflowCmd = &cobra.Command{
 var (
 	wfProjectFlag string
 	wfBranchFlag  string
+	wfDaysFlag    int
+	wfLimitFlag   int
+	wfFullFlag    bool
 )
+
+type wfSummary struct {
+	ID         string `json:"id"`
+	Branch     string `json:"branch"`
+	CommitSHA  string `json:"commit_sha"`
+	PipelineID string `json:"initial_pipeline_id"`
+	CreatedAt  string `json:"created_at,omitempty"`
+}
+
+func summarizeWorkflows(items []json.RawMessage) []wfSummary {
+	summaries := make([]wfSummary, 0, len(items))
+	for _, raw := range items {
+		var w struct {
+			WfID         string `json:"wf_id"`
+			BranchName   string `json:"branch_name"`
+			CommitSHA    string `json:"commit_sha"`
+			InitialPplID string `json:"initial_ppl_id"`
+			CreatedAt    struct {
+				Seconds int64 `json:"seconds"`
+			} `json:"created_at"`
+		}
+		if err := json.Unmarshal(raw, &w); err != nil {
+			continue
+		}
+		summaries = append(summaries, wfSummary{
+			ID:         w.WfID,
+			Branch:     w.BranchName,
+			CommitSHA:  w.CommitSHA,
+			PipelineID: w.InitialPplID,
+			CreatedAt:  protoTimeString(w.CreatedAt.Seconds),
+		})
+	}
+	return summaries
+}
 
 var workflowListCmd = &cobra.Command{
 	Use:   "list",
-	Short: "List workflows for a project",
+	Short: "List workflows for a project (trimmed summaries; --full for raw payload)",
 	Example: `  sem-ai workflow list --project my-project
-  sem-ai workflow list --project my-project --branch main`,
+  sem-ai workflow list --project my-project --branch main --days 7`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		if !config.IsConfigured() {
 			return fmt.Errorf("not configured; run 'sem-ai connect' first")
@@ -42,6 +80,7 @@ var workflowListCmd = &cobra.Command{
 		if wfBranchFlag != "" {
 			params.Set("branch_name", wfBranchFlag)
 		}
+		listWindowParams(params, wfDaysFlag, wfLimitFlag, time.Now())
 
 		c := client.New()
 		resp, err := c.ListWithParams("plumber-workflows", params)
@@ -60,35 +99,14 @@ var workflowListCmd = &cobra.Command{
 			return err
 		}
 
-		type wfSummary struct {
-			ID          string `json:"id"`
-			Branch      string `json:"branch"`
-			CommitSHA   string `json:"commit_sha"`
-			PipelineID  string `json:"initial_pipeline_id"`
-			CreatedAt   any    `json:"created_at"`
+		if wfFullFlag {
+			var result any
+			json.Unmarshal(resp.Body, &result)
+			output.Result(result)
+			return nil
 		}
 
-		summaries := make([]wfSummary, 0, len(workflows))
-		for _, raw := range workflows {
-			var w struct {
-				WfID         string `json:"wf_id"`
-				BranchName   string `json:"branch_name"`
-				CommitSHA    string `json:"commit_sha"`
-				InitialPplID string `json:"initial_ppl_id"`
-				CreatedAt    any    `json:"created_at"`
-			}
-			if err := json.Unmarshal(raw, &w); err != nil {
-				continue
-			}
-			summaries = append(summaries, wfSummary{
-				ID:         w.WfID,
-				Branch:     w.BranchName,
-				CommitSHA:  w.CommitSHA,
-				PipelineID: w.InitialPplID,
-				CreatedAt:  w.CreatedAt,
-			})
-		}
-		output.Result(summaries)
+		output.Result(summarizeWorkflows(workflows))
 		return nil
 	},
 }
@@ -362,6 +380,9 @@ var workflowRunCmd = &cobra.Command{
 func init() {
 	workflowListCmd.Flags().StringVar(&wfProjectFlag, "project", "", "project name or ID (auto-detected from git remote if omitted)")
 	workflowListCmd.Flags().StringVar(&wfBranchFlag, "branch", "", "filter by branch name")
+	workflowListCmd.Flags().IntVar(&wfDaysFlag, "days", 30, "only workflows created in the last N days (0 = no time filter)")
+	workflowListCmd.Flags().IntVar(&wfLimitFlag, "limit", 30, "max number of workflows to return (0 = server default)")
+	workflowListCmd.Flags().BoolVar(&wfFullFlag, "full", false, "return the full raw API payload instead of trimmed summaries")
 	workflowRunCmd.Flags().StringVar(&wfRunProjectFlag, "project", "", "project name or ID (auto-detected from git remote if omitted)")
 	workflowRunCmd.Flags().StringVar(&wfRunBranchFlag, "branch", "", "branch to run workflow on")
 	workflowCmd.AddCommand(workflowListCmd)

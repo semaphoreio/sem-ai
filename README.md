@@ -186,7 +186,7 @@ All commands become native MCP tools (`project_list`, `diagnose`, `status`, `bla
 | Command | Description |
 |---------|-------------|
 | `pipeline show <id>` | Show pipeline with blocks and jobs |
-| `pipeline list --project <p>` | List pipelines |
+| `pipeline list --project <p> [--branch <b>] [--days <n>] [--limit <n>] [--full]` | List pipelines (trimmed summaries, last 30 days by default; `--full` for raw payload) |
 | `pipeline stop <id>` | Stop a pipeline |
 | `pipeline rebuild <id>` | Trigger partial rebuild (API call only) |
 | `pipeline promote <id>` | Trigger a promotion (deploy) |
