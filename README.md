@@ -175,7 +175,7 @@ All commands become native MCP tools (`project_list`, `diagnose`, `status`, `bla
 
 | Command | Description |
 |---------|-------------|
-| `workflow list --project <p>` | List workflows |
+| `workflow list --project <p> [--branch <b>] [--days <n>] [--limit <n>] [--full]` | List workflows (trimmed summaries, last 30 days by default; `--full` for raw payload) |
 | `workflow show <id>` | Show workflow details |
 | `workflow run --project <p>` | Rerun the latest workflow |
 | `workflow rerun <id>` | Rerun a workflow |
