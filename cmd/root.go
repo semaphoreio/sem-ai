@@ -41,6 +41,9 @@ var rootCmd = &cobra.Command{
 			log.SetOutput(io.Discard)
 		}
 		output.SetFormat(formatFlag)
+		if invocationSource == "semai-mcp" && formatFlag == "json" {
+			output.SetFormat("compact")
+		}
 
 		// Stamp client identification for server-side request metrics. Runs for
 		// every command on both the CLI and MCP surfaces (each MCP tool call
@@ -131,7 +134,7 @@ func patchArgsForExamples(cmd *cobra.Command) {
 func init() {
 	cobra.OnInitialize(initConfig)
 
-	rootCmd.PersistentFlags().StringVarP(&formatFlag, "format", "f", "json", "output format: json, table, yaml")
+	rootCmd.PersistentFlags().StringVarP(&formatFlag, "format", "f", "json", "output format: json, table, yaml, compact")
 	rootCmd.PersistentFlags().BoolVarP(&verboseFlag, "verbose", "v", false, "verbose output (show HTTP requests)")
 	rootCmd.PersistentFlags().BoolVar(&examplesFlag, "examples", false, "show command examples and exit")
 }
