@@ -24,7 +24,7 @@ var yamlValidateCmd = &cobra.Command{
 	Example: `  sem-ai yaml validate --file .semaphore/semaphore.yml`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		if !config.IsConfigured() {
-			return fmt.Errorf("not configured — run 'sem-ai connect' first")
+			return fmt.Errorf("not configured; run 'sem-ai connect' first")
 		}
 		if yamlValidateFileFlag == "" {
 			output.Error("invalid_args", "--file is required", 1)

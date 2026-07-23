@@ -18,7 +18,7 @@ var testboxCmd = &cobra.Command{
 	Short: "Run CI commands against local changes in a real Semaphore environment",
 	Long: `Testbox spins up a Semaphore CI environment you can run commands against instantly.
 Uses Semaphore's debug project API to create a warm VM with your project's
-machine type, secrets, and cache — then syncs your local code and executes commands via SSH.`,
+machine type, secrets, and cache, then syncs your local code and executes commands via SSH.`,
 }
 
 var (
@@ -30,20 +30,20 @@ var (
 
 var testboxWarmupCmd = &cobra.Command{
 	Use:   "warmup",
-	Short: "Start a testbox — warm CI environment for your project",
+	Short: "Start a testbox: warm CI environment for your project",
 	Example: `  sem-ai testbox warmup --project my-app
   sem-ai testbox warmup --project my-app --machine f1-standard-4 --duration 30m
   sem-ai testbox warmup --project my-app --os-image ubuntu2204`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		if !config.IsConfigured() {
-			return fmt.Errorf("not configured — run 'sem-ai connect' first")
+			return fmt.Errorf("not configured; run 'sem-ai connect' first")
 		}
 
 		project := testboxWarmupProjectFlag
 		if project == "" {
 			p, err := detectProject()
 			if err != nil {
-				output.Error("context_error", "could not detect project — use --project", 1)
+				output.Error("context_error", "could not detect project; use --project", 1)
 				return err
 			}
 			project = p
@@ -128,7 +128,7 @@ var testboxWarmupCmd = &cobra.Command{
 		if job.Status.State != "RUNNING" {
 			// Cleanup: stop the stuck job
 			c.PostAction("jobs", jobID, "stop", nil)
-			output.Error("testbox_error", fmt.Sprintf("job stuck in state %q after timeout — stopped", job.Status.State), 1)
+			output.Error("testbox_error", fmt.Sprintf("job stuck in state %q after timeout; stopped", job.Status.State), 1)
 			return fmt.Errorf("warmup timeout")
 		}
 
@@ -154,7 +154,7 @@ var testboxWarmupCmd = &cobra.Command{
 		json.Unmarshal(sshResp.Body, &sshKey)
 		if sshKey.Key == "" {
 			c.PostAction("jobs", jobID, "stop", nil)
-			output.Error("testbox_error", "SSH debug key was empty — debug sessions may be disabled for this project", 1)
+			output.Error("testbox_error", "SSH debug key was empty; debug sessions may be disabled for this project", 1)
 			return fmt.Errorf("empty SSH key")
 		}
 
@@ -210,7 +210,7 @@ type jobStatus struct {
 
 func debugDisabledMsg(project string, body []byte) string {
 	msg := fmt.Sprintf(
-		"debug/SSH sessions are disabled for project %q — testbox needs them.\n"+
+		"debug/SSH sessions are disabled for project %q; testbox needs them.\n"+
 			"Enable \"Collaborators can start empty debug sessions\" under the project's "+
 			"Settings → Permissions, or ask an organization admin to enable it.",
 		project)

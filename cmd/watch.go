@@ -23,7 +23,7 @@ var watchCmd = &cobra.Command{
   sem-ai watch abc123-def456 --interval 10s`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		if !config.IsConfigured() {
-			return fmt.Errorf("not configured — run 'sem-ai connect' first")
+			return fmt.Errorf("not configured; run 'sem-ai connect' first")
 		}
 
 		interval, err := time.ParseDuration(watchIntervalFlag)
@@ -134,7 +134,7 @@ var watchCmd = &cobra.Command{
 				Iteration:  i,
 			}
 			if formatFlag == "table" {
-				fmt.Printf("[%s] iteration %d — %s running...\n", elapsed, i, latestRunning)
+				fmt.Printf("[%s] iteration %d: %s running...\n", elapsed, i, latestRunning)
 			} else {
 				b, _ := json.Marshal(pr)
 				fmt.Println(string(b))

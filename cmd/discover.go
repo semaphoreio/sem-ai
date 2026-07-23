@@ -8,7 +8,7 @@ import (
 
 var discoverCmd = &cobra.Command{
 	Use:     "discover",
-	Short:   "Introspect all registered commands — capability map for agents",
+	Short:   "Introspect all registered commands: capability map for agents",
 	Long:    "Returns a structured map of every command, its flags, and examples. Designed for AI agents to self-orient.",
 	Example: "  sem-ai discover\n  sem-ai discover --format table",
 	RunE: func(cmd *cobra.Command, args []string) error {

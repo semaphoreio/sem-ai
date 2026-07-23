@@ -41,8 +41,8 @@ func TestInterpret(t *testing.T) {
 }
 
 func TestAnnotate(t *testing.T) {
-	if got := Annotate(130); got != " — SIGINT" {
-		t.Errorf("Annotate(130) = %q, want %q", got, " — SIGINT")
+	if got := Annotate(130); got != " (SIGINT)" {
+		t.Errorf("Annotate(130) = %q, want %q", got, " (SIGINT)")
 	}
 	if got := Annotate(1); got != "" {
 		t.Errorf("Annotate(1) = %q, want empty", got)

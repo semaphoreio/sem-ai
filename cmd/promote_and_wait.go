@@ -32,7 +32,7 @@ returns final result. Essential for agents that deploy then verify.`,
   sem-ai promote-and-wait <pipeline-id> --target "Staging Deploy" --confirm`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		if !config.IsConfigured() {
-			return fmt.Errorf("not configured — run 'sem-ai connect' first")
+			return fmt.Errorf("not configured; run 'sem-ai connect' first")
 		}
 		pipelineID := args[0]
 

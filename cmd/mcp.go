@@ -24,7 +24,7 @@ var mcpCmd = &cobra.Command{
 	Short: "Start MCP (Model Context Protocol) stdio server",
 	Long: `Starts a persistent MCP server over stdin/stdout, exposing all sem-ai
 commands as MCP tools. Config is loaded once at startup. Each tool call
-routes directly through the in-memory cobra tree — no process spawn.
+routes directly through the in-memory cobra tree, with no process spawn.
 
 Any MCP-compatible client (Claude Code, Cursor, VS Code, etc.) can use it.
 

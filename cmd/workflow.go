@@ -28,7 +28,7 @@ var workflowListCmd = &cobra.Command{
   sem-ai workflow list --project my-project --branch main`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		if !config.IsConfigured() {
-			return fmt.Errorf("not configured — run 'sem-ai connect' first")
+			return fmt.Errorf("not configured; run 'sem-ai connect' first")
 		}
 
 		projectID, err := resolveProjectID(wfProjectFlag)
@@ -100,7 +100,7 @@ var workflowShowCmd = &cobra.Command{
 	Example: "  sem-ai workflow show abc123-def456",
 	RunE: func(cmd *cobra.Command, args []string) error {
 		if !config.IsConfigured() {
-			return fmt.Errorf("not configured — run 'sem-ai connect' first")
+			return fmt.Errorf("not configured; run 'sem-ai connect' first")
 		}
 		c := client.New()
 		resp, err := c.Get("plumber-workflows", args[0])
@@ -133,7 +133,7 @@ func resolveProjectID(nameOrID string) (string, error) {
 	if nameOrID == "" {
 		detected, err := detectProject()
 		if err != nil {
-			return "", fmt.Errorf("%w — pass --project", err)
+			return "", fmt.Errorf("%w; pass --project", err)
 		}
 		nameOrID = detected
 	}
@@ -185,7 +185,7 @@ func resolveProject(nameOrID string) (name, id string, err error) {
 	if nameOrID == "" {
 		detected, derr := detectProject()
 		if derr != nil {
-			return "", "", fmt.Errorf("%w — pass --project", derr)
+			return "", "", fmt.Errorf("%w; pass --project", derr)
 		}
 		nameOrID = detected
 	}
@@ -234,7 +234,7 @@ var workflowRerunCmd = &cobra.Command{
 	Example: `  sem-ai workflow rerun abc123-def456`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		if !config.IsConfigured() {
-			return fmt.Errorf("not configured — run 'sem-ai connect' first")
+			return fmt.Errorf("not configured; run 'sem-ai connect' first")
 		}
 		c := client.New()
 		token := client.NewRequestToken()
@@ -265,7 +265,7 @@ var workflowStopCmd = &cobra.Command{
 	Example: `  sem-ai workflow stop abc123-def456`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		if !config.IsConfigured() {
-			return fmt.Errorf("not configured — run 'sem-ai connect' first")
+			return fmt.Errorf("not configured; run 'sem-ai connect' first")
 		}
 		c := client.New()
 		token := client.NewRequestToken()
@@ -301,7 +301,7 @@ var workflowRunCmd = &cobra.Command{
   sem-ai workflow run --project my-project --branch feature-x`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		if !config.IsConfigured() {
-			return fmt.Errorf("not configured — run 'sem-ai connect' first")
+			return fmt.Errorf("not configured; run 'sem-ai connect' first")
 		}
 
 		projectID, err := resolveProjectID(wfRunProjectFlag)

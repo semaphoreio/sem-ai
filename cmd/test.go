@@ -18,7 +18,7 @@ import (
 
 var testCmd = &cobra.Command{
 	Use:   "test",
-	Short: "Test intelligence — results, failures, flaky detection",
+	Short: "Test intelligence: results, failures, flaky detection",
 }
 
 var testPipelineFlag string
@@ -33,7 +33,7 @@ Returns structured test data: pass/fail counts, individual failures with file/li
   sem-ai test report --pipeline abc123-def456 --format table`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		if !config.IsConfigured() {
-			return fmt.Errorf("not configured — run 'sem-ai connect' first")
+			return fmt.Errorf("not configured; run 'sem-ai connect' first")
 		}
 		if testPipelineFlag == "" {
 			return fmt.Errorf("--pipeline is required")
@@ -74,7 +74,7 @@ var testSummaryCmd = &cobra.Command{
 	Example: `  sem-ai test summary --pipeline abc123-def456`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		if !config.IsConfigured() {
-			return fmt.Errorf("not configured — run 'sem-ai connect' first")
+			return fmt.Errorf("not configured; run 'sem-ai connect' first")
 		}
 		if testSummaryPipelineFlag == "" {
 			return fmt.Errorf("--pipeline is required")
@@ -134,7 +134,7 @@ var testSummaryCmd = &cobra.Command{
 		}
 
 		if totalTests == 0 {
-			summary["note"] = "no test output detected in job logs — jobs may not produce parseable test output"
+			summary["note"] = "no test output detected in job logs; jobs may not produce parseable test output"
 		}
 
 		output.Result(summary)
@@ -152,7 +152,7 @@ var testFlakyCmd = &cobra.Command{
 	Use:   "flaky",
 	Short: "Detect flaky tests by analyzing recent workflows",
 	Long: `Analyzes the last N workflows for a project and finds tests that
-sometimes pass and sometimes fail — i.e. flaky tests.
+sometimes pass and sometimes fail, i.e. flaky tests.
 
 Returns each flaky test with its pass/fail ratio across recent runs.
 
@@ -163,7 +163,7 @@ pass-rate, labels) use 'sem-ai flaky list'.`,
   sem-ai test flaky --project my-project --branch main --count 10`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		if !config.IsConfigured() {
-			return fmt.Errorf("not configured — run 'sem-ai connect' first")
+			return fmt.Errorf("not configured; run 'sem-ai connect' first")
 		}
 		projectID, err := resolveProjectID(testFlakyProjectFlag)
 		if err != nil {

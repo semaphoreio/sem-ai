@@ -13,21 +13,21 @@ import "fmt"
 // callers keep the raw exit code and attach this alongside it.
 type Info struct {
 	ExitCode int    `json:"exit_code"`
-	Signal   string `json:"signal,omitempty"`   // e.g. "SIGINT"
+	Signal   string `json:"signal,omitempty"`    // e.g. "SIGINT"
 	SignalNo int    `json:"signal_no,omitempty"` // e.g. 2
-	Meaning  string `json:"meaning,omitempty"`  // human/agent-readable cause
+	Meaning  string `json:"meaning,omitempty"`   // human/agent-readable cause
 }
 
 // known maps signal numbers to (name, meaning) for the signals a CI job is
 // realistically killed by. The exit code is 128+number.
 var known = map[int]struct{ name, meaning string }{
 	2:  {"SIGINT", "interrupted (Ctrl-C / SIGINT); Semaphore agent marks the job STOPPED, not FAILED, so failure notifications won't fire"},
-	9:  {"SIGKILL", "force-killed — usually out-of-memory (OOM) or hitting a hard resource limit"},
-	15: {"SIGTERM", "terminated (SIGTERM) — typically a timeout or an external stop request"},
-	11: {"SIGSEGV", "segmentation fault — the process crashed"},
-	6:  {"SIGABRT", "aborted (SIGABRT) — e.g. an assertion failure or panic"},
-	1:  {"SIGHUP", "hangup (SIGHUP) — controlling terminal closed"},
-	13: {"SIGPIPE", "broken pipe (SIGPIPE) — wrote to a closed pipe/socket"},
+	9:  {"SIGKILL", "force-killed: usually out-of-memory (OOM) or hitting a hard resource limit"},
+	15: {"SIGTERM", "terminated (SIGTERM): typically a timeout or an external stop request"},
+	11: {"SIGSEGV", "segmentation fault: the process crashed"},
+	6:  {"SIGABRT", "aborted (SIGABRT): e.g. an assertion failure or panic"},
+	1:  {"SIGHUP", "hangup (SIGHUP): controlling terminal closed"},
+	13: {"SIGPIPE", "broken pipe (SIGPIPE): wrote to a closed pipe/socket"},
 }
 
 // Interpret returns signal Info for a 128+N exit code, or nil when the code
@@ -50,10 +50,10 @@ func Interpret(exitCode int) *Info {
 }
 
 // Annotate returns a short human-readable suffix for an exit code, e.g.
-// " — SIGINT" for 130, or "" when the code carries no signal meaning.
+// " (SIGINT)" for 130, or "" when the code carries no signal meaning.
 func Annotate(exitCode int) string {
 	if info := Interpret(exitCode); info != nil {
-		return " — " + info.Signal
+		return " (" + info.Signal + ")"
 	}
 	return ""
 }

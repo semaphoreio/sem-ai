@@ -71,7 +71,7 @@ var contextSwitchCmd = &cobra.Command{
 			return err
 		}
 		if len(contexts) == 0 {
-			output.Error("config_error", "no contexts configured — run 'sem-ai connect' first", 1)
+			output.Error("config_error", "no contexts configured; run 'sem-ai connect' first", 1)
 			return fmt.Errorf("no contexts")
 		}
 

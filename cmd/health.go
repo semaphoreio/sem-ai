@@ -15,20 +15,20 @@ var healthProjectFlag string
 
 var healthCmd = &cobra.Command{
 	Use:   "health",
-	Short: "Project health summary — recent pass rate, failures, deployment status",
+	Short: "Project health summary: recent pass rate, failures, deployment status",
 	Long: `Compound command: aggregates recent workflow results, test failures,
 and deployment target status into a single health report.`,
 	Example: `  sem-ai health --project my-project`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		if !config.IsConfigured() {
-			return fmt.Errorf("not configured — run 'sem-ai connect' first")
+			return fmt.Errorf("not configured; run 'sem-ai connect' first")
 		}
 
 		project := healthProjectFlag
 		if project == "" {
 			p, err := detectProject()
 			if err != nil {
-				output.Error("context_error", "could not detect project — use --project", 1)
+				output.Error("context_error", "could not detect project; use --project", 1)
 				return err
 			}
 			project = p
