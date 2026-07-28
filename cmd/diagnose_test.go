@@ -55,7 +55,7 @@ func diagnosedJob(t *testing.T, out []byte) map[string]any {
 
 func TestDiagnose_FailedJob_WithLogs_ShowsLogTail(t *testing.T) {
 	resetDiagnoseFlags()
-	reqs, out, _ := apiMock(t, func(w http.ResponseWriter, r *http.Request) {
+	_, out, _ := apiMock(t, func(w http.ResponseWriter, r *http.Request) {
 		switch {
 		case r.Method == "GET" && r.URL.Path == "/api/v1alpha/plumber-workflows/wf-1":
 			writeJSON(w, 200, map[string]any{"workflow": map[string]any{"initial_ppl_id": "ppl-1"}})
@@ -78,12 +78,6 @@ func TestDiagnose_FailedJob_WithLogs_ShowsLogTail(t *testing.T) {
 		t.Fatalf("diagnose: %v", err)
 	}
 
-	// The jobs-describe endpoint (the 404 fallback path) must never be hit for
-	// a job whose logs fetch succeeded.
-	if n := count(reqs, "GET", "/api/v1alpha/jobs/job-1"); n != 0 {
-		t.Errorf("must not fetch job describe when logs are available; got %d calls", n)
-	}
-
 	job := diagnosedJob(t, out.Bytes())
 	if job["failure_reason"] != nil {
 		t.Errorf("failure_reason = %v, want absent for a job with logs", job["failure_reason"])
@@ -96,23 +90,22 @@ func TestDiagnose_FailedJob_WithLogs_ShowsLogTail(t *testing.T) {
 
 // ---- direction 2: jobs that never ran now surface failure_reason ----
 
-func TestDiagnose_FailedJob_NeverRan_PrefersJobDescribeFailureReason(t *testing.T) {
+func TestDiagnose_FailedJob_NeverRan_ShowsFailureReasonFrom404Body(t *testing.T) {
 	resetDiagnoseFlags()
 	reason := "Selected machine type is not available in this organization"
-	reqs, out, _ := apiMock(t, func(w http.ResponseWriter, r *http.Request) {
+	_, out, _ := apiMock(t, func(w http.ResponseWriter, r *http.Request) {
 		switch {
 		case r.Method == "GET" && r.URL.Path == "/api/v1alpha/plumber-workflows/wf-1":
 			writeJSON(w, 200, map[string]any{"workflow": map[string]any{"initial_ppl_id": "ppl-1"}})
 		case r.Method == "GET" && r.URL.Path == "/api/v1alpha/pipelines/ppl-1":
 			writeJSON(w, 200, pipelineWithJob("job-2"))
 		case r.Method == "GET" && r.URL.Path == "/api/v1alpha/logs/job-2":
-			// Backend semaphore#1091: 404 with a plain JSON-encoded string body.
+			// Backend semaphore#1091: 404 with a plain JSON-encoded string body
+			// carrying the job's failure_reason.
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(404)
 			b, _ := json.Marshal(reason)
 			_, _ = w.Write(b)
-		case r.Method == "GET" && r.URL.Path == "/api/v1alpha/jobs/job-2":
-			writeJSON(w, 200, map[string]any{"failure_reason": reason})
 		default:
 			writeJSON(w, 500, map[string]any{"error": "unexpected " + r.Method + " " + r.URL.Path})
 		}
@@ -121,8 +114,6 @@ func TestDiagnose_FailedJob_NeverRan_PrefersJobDescribeFailureReason(t *testing.
 	if err := diagnoseCmd.RunE(diagnoseCmd, []string{"wf-1"}); err != nil {
 		t.Fatalf("diagnose: %v", err)
 	}
-
-	find(t, reqs, "GET", "/api/v1alpha/jobs/job-2")
 
 	job := diagnosedJob(t, out.Bytes())
 	if job["failure_reason"] != reason {
@@ -133,7 +124,7 @@ func TestDiagnose_FailedJob_NeverRan_PrefersJobDescribeFailureReason(t *testing.
 	}
 }
 
-func TestDiagnose_FailedJob_NeverRan_FallsBackTo404Body(t *testing.T) {
+func TestDiagnose_FailedJob_NeverRan_ShowsNeverStartedMessage(t *testing.T) {
 	resetDiagnoseFlags()
 	reason := "This job never started, so no logs were produced."
 	_, out, _ := apiMock(t, func(w http.ResponseWriter, r *http.Request) {
@@ -147,10 +138,6 @@ func TestDiagnose_FailedJob_NeverRan_FallsBackTo404Body(t *testing.T) {
 			w.WriteHeader(404)
 			b, _ := json.Marshal(reason)
 			_, _ = w.Write(b)
-		case r.Method == "GET" && r.URL.Path == "/api/v1alpha/jobs/job-3":
-			// job describe has no failure_reason of its own (e.g. stopped, not
-			// failed-to-schedule) - must fall back to the 404 body.
-			writeJSON(w, 200, map[string]any{"failure_reason": ""})
 		default:
 			writeJSON(w, 500, map[string]any{"error": "unexpected " + r.Method + " " + r.URL.Path})
 		}
@@ -162,41 +149,7 @@ func TestDiagnose_FailedJob_NeverRan_FallsBackTo404Body(t *testing.T) {
 
 	job := diagnosedJob(t, out.Bytes())
 	if job["failure_reason"] != reason {
-		t.Errorf("failure_reason = %v, want fallback %q", job["failure_reason"], reason)
-	}
-}
-
-func TestDiagnose_FailedJob_NeverRan_JobDescribeUnavailable_FallsBackTo404Body(t *testing.T) {
-	resetDiagnoseFlags()
-	reason := "Log not found neither in the archive nor in the virtual machine"
-	_, out, _ := apiMock(t, func(w http.ResponseWriter, r *http.Request) {
-		switch {
-		case r.Method == "GET" && r.URL.Path == "/api/v1alpha/plumber-workflows/wf-1":
-			writeJSON(w, 200, map[string]any{"workflow": map[string]any{"initial_ppl_id": "ppl-1"}})
-		case r.Method == "GET" && r.URL.Path == "/api/v1alpha/pipelines/ppl-1":
-			writeJSON(w, 200, pipelineWithJob("job-4"))
-		case r.Method == "GET" && r.URL.Path == "/api/v1alpha/logs/job-4":
-			w.Header().Set("Content-Type", "application/json")
-			w.WriteHeader(404)
-			b, _ := json.Marshal(reason)
-			_, _ = w.Write(b)
-		case r.Method == "GET" && r.URL.Path == "/api/v1alpha/jobs/job-4":
-			// job describe itself errors (non-retryable status - a genuine
-			// 4xx, not a transient 5xx) - must still fall back to the 404
-			// body rather than leave the job unexplained.
-			writeJSON(w, 403, map[string]any{"error": "forbidden"})
-		default:
-			writeJSON(w, 500, map[string]any{"error": "unexpected " + r.Method + " " + r.URL.Path})
-		}
-	})
-
-	if err := diagnoseCmd.RunE(diagnoseCmd, []string{"wf-1"}); err != nil {
-		t.Fatalf("diagnose: %v", err)
-	}
-
-	job := diagnosedJob(t, out.Bytes())
-	if job["failure_reason"] != reason {
-		t.Errorf("failure_reason = %v, want fallback %q", job["failure_reason"], reason)
+		t.Errorf("failure_reason = %v, want %q", job["failure_reason"], reason)
 	}
 }
 
@@ -204,7 +157,7 @@ func TestDiagnose_FailedJob_NeverRan_JobDescribeUnavailable_FallsBackTo404Body(t
 
 func TestDiagnose_FailedJob_LogFetchGenuineError_LeavesJobUnexplained(t *testing.T) {
 	resetDiagnoseFlags()
-	reqs, out, _ := apiMock(t, func(w http.ResponseWriter, r *http.Request) {
+	_, out, _ := apiMock(t, func(w http.ResponseWriter, r *http.Request) {
 		switch {
 		case r.Method == "GET" && r.URL.Path == "/api/v1alpha/plumber-workflows/wf-1":
 			writeJSON(w, 200, map[string]any{"workflow": map[string]any{"initial_ppl_id": "ppl-1"}})
@@ -221,12 +174,6 @@ func TestDiagnose_FailedJob_LogFetchGenuineError_LeavesJobUnexplained(t *testing
 
 	if err := diagnoseCmd.RunE(diagnoseCmd, []string{"wf-1"}); err != nil {
 		t.Fatalf("diagnose: %v", err)
-	}
-
-	// Must not fall back to job describe for a genuine non-404 error - that
-	// fallback exists only for the "no logs" (404) case.
-	if n := count(reqs, "GET", "/api/v1alpha/jobs/job-5"); n != 0 {
-		t.Errorf("must not fetch job describe on a genuine fetch error; got %d calls", n)
 	}
 
 	job := diagnosedJob(t, out.Bytes())

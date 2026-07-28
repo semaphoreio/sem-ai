@@ -228,10 +228,9 @@ If no workflow ID is given, finds the latest workflow for the current project/br
 						// stopped before it started. Backend semaphore#1091 made this
 						// 404 meaningful: the logs endpoint now responds with the job's
 						// failure_reason (or a "never started"/"stopped before it
-						// started" message) instead of an opaque 500. Prefer the
-						// authoritative failure_reason from job describe, falling back
-						// to that 404 body so the diagnosis is never empty for these jobs.
-						fj.FailureReason = jobFailureReason(c, job.JobID, logResp.Body)
+						// started" message) in the body itself instead of an opaque
+						// 500, so the diagnosis is never empty for these jobs.
+						fj.FailureReason = decode404Body(logResp.Body)
 					default:
 						// Some other genuine API error (e.g. 401/403) fetching logs -
 						// leave it unexplained rather than guess.
@@ -290,35 +289,6 @@ If no workflow ID is given, finds the latest workflow for the current project/br
 // semaphore#1091 sends) — should not happen in practice, but a diagnosis
 // should never show a job with silently nothing to say.
 const defaultNoLogsReason = "job produced no logs, and the API gave no explanation"
-
-// jobFailureReason resolves why a failed job produced no logs (its logs
-// fetch returned 404). It prefers the authoritative failure_reason from job
-// describe — set for jobs that never got to run at all, e.g. an invalid or
-// unavailable machine type — falling back to the message backend
-// semaphore#1091 already embedded in the 404 body (loghub's own message, or
-// a "never started"/"stopped before it started" explanation) when describe
-// doesn't have one.
-func jobFailureReason(c *client.Client, jobID string, body404 []byte) string {
-	if resp, err := c.Get("jobs", jobID); err == nil && resp.StatusCode == 200 {
-		// Tolerate either a flat job document or one nested under "job" -
-		// whichever shape the endpoint actually returns, we want the field.
-		var job struct {
-			FailureReason string `json:"failure_reason"`
-			Job           struct {
-				FailureReason string `json:"failure_reason"`
-			} `json:"job"`
-		}
-		if json.Unmarshal(resp.Body, &job) == nil {
-			if job.FailureReason != "" {
-				return job.FailureReason
-			}
-			if job.Job.FailureReason != "" {
-				return job.Job.FailureReason
-			}
-		}
-	}
-	return decode404Body(body404)
-}
 
 // decode404Body extracts the human-readable reason from a logs-endpoint 404
 // body. Backend semaphore#1091 made this body a JSON-encoded string (not an
