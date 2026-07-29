@@ -7,6 +7,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/semaphoreio/sem-ai/pkg/output"
 )
 
 func TestDebugDisabledMsg(t *testing.T) {
@@ -57,6 +59,14 @@ func TestJobAge_EmptyOrUnparseable(t *testing.T) {
 		if got := jobAge(in); got != "" {
 			t.Errorf("jobAge(%q) = %q, want empty", in, got)
 		}
+	}
+}
+
+func TestJobAge_FutureCreateTime_ClampsToZeroInsteadOfNegative(t *testing.T) {
+	future := time.Now().Add(30 * time.Second).Unix()
+	got := jobAge(fmt.Sprintf("%d", future))
+	if got != "0s" {
+		t.Errorf("jobAge(future) = %q, want 0s (clamped, not a negative duration)", got)
 	}
 }
 
@@ -168,6 +178,102 @@ func TestTestboxList_NoRunningJobsAtAllIsNotAnError(t *testing.T) {
 	}
 	if errb.String() != "" {
 		t.Errorf("expected no stderr output, got: %q", errb.String())
+	}
+}
+
+// TestTestboxList_PaginatesPastPage1 reproduces the busy-org case: 30
+// non-testbox jobs fill page 1 (the API's page_size cap), and the actual
+// testbox only shows up via next_page_token on page 2. Without following the
+// token, it would silently never be found.
+func TestTestboxList_PaginatesPastPage1(t *testing.T) {
+	page1Jobs := make([]map[string]any, 0, 30)
+	for i := 0; i < 30; i++ {
+		page1Jobs = append(page1Jobs, testboxJobFixture(
+			fmt.Sprintf("noise-%d", i), "some other debug job", "proj-1", "f1-standard-2", time.Minute))
+	}
+
+	reqs, out, _ := apiMock(t, func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.Method == "GET" && r.URL.Path == "/api/v1alpha/jobs":
+			if r.URL.Query().Get("page_token") == "" {
+				writeJSON(w, 200, map[string]any{"jobs": page1Jobs, "next_page_token": "p2"})
+				return
+			}
+			if r.URL.Query().Get("page_token") != "p2" {
+				t.Errorf("unexpected page_token %q", r.URL.Query().Get("page_token"))
+			}
+			writeJSON(w, 200, map[string]any{
+				"jobs": []map[string]any{
+					testboxJobFixture("box-on-page-2", testboxJobName, "proj-1", "f1-standard-4", 20*time.Minute),
+				},
+				"next_page_token": "",
+			})
+		case r.Method == "GET" && r.URL.Path == "/api/v1alpha/projects":
+			writeJSON(w, 200, []map[string]any{{"metadata": map[string]any{"id": "proj-1", "name": "go-mux"}}})
+		default:
+			writeJSON(w, 500, map[string]any{"path": r.URL.Path})
+		}
+	})
+
+	if err := testboxListCmd.RunE(testboxListCmd, nil); err != nil {
+		t.Fatalf("testbox list: %v", err)
+	}
+	if n := count(reqs, "GET", "/api/v1alpha/jobs"); n != 2 {
+		t.Errorf("expected 2 paged GET /jobs calls, got %d", n)
+	}
+
+	var result struct {
+		Testboxes []map[string]any `json:"testboxes"`
+	}
+	if err := json.Unmarshal(out.Bytes(), &result); err != nil {
+		t.Fatalf("could not parse output %q: %v", out.String(), err)
+	}
+	if len(result.Testboxes) != 1 {
+		t.Fatalf("expected the page-2 testbox to be found, got %d testboxes: %+v", len(result.Testboxes), result.Testboxes)
+	}
+	if result.Testboxes[0]["testbox_id"] != "box-on-page-2" {
+		t.Errorf("testbox_id = %v, want box-on-page-2", result.Testboxes[0]["testbox_id"])
+	}
+}
+
+// TestTestboxList_TableFormat_HasRealColumns guards against the wrapped
+// {"testboxes": [...]} shape regressing to a raw "%v" dump (a map literal
+// like "map[age:... machine:...]") in table format.
+func TestTestboxList_TableFormat_HasRealColumns(t *testing.T) {
+	_, out, _ := apiMock(t, func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.Method == "GET" && r.URL.Path == "/api/v1alpha/jobs":
+			writeJSON(w, 200, map[string]any{
+				"jobs": []map[string]any{
+					testboxJobFixture("box-1", testboxJobName, "proj-1", "f1-standard-2", 3*time.Minute),
+				},
+			})
+		case r.Method == "GET" && r.URL.Path == "/api/v1alpha/projects":
+			writeJSON(w, 200, []map[string]any{{"metadata": map[string]any{"id": "proj-1", "name": "go-mux"}}})
+		default:
+			writeJSON(w, 500, nil)
+		}
+	})
+
+	output.SetFormat("table")
+	defer output.SetFormat("json")
+
+	if err := testboxListCmd.RunE(testboxListCmd, nil); err != nil {
+		t.Fatalf("testbox list: %v", err)
+	}
+
+	got := out.String()
+	if strings.Contains(got, "map[") {
+		t.Errorf("table output should render real columns, not a raw map dump; got: %q", got)
+	}
+	if !strings.Contains(got, "testbox_id") {
+		t.Errorf("expected a testbox_id column header, got: %q", got)
+	}
+	if !strings.Contains(got, "box-1") {
+		t.Errorf("expected the testbox_id value box-1 in a row, got: %q", got)
+	}
+	if !strings.Contains(got, "go-mux") {
+		t.Errorf("expected the resolved project name in a row, got: %q", got)
 	}
 }
 

@@ -537,12 +537,58 @@ type testboxJobEntry struct {
 	} `json:"status"`
 }
 
+// maxTestboxListPages bounds the next_page_token pagination loop as a safety
+// valve against a pathological/looping server response. 200 pages at up to
+// 30 jobs/page comfortably covers any real org's concurrent RUNNING jobs.
+const maxTestboxListPages = 200
+
+// fetchRunningJobs pages through GET /jobs?states=RUNNING to completion,
+// following the response body's next_page_token until the API stops
+// returning one. This is a DIFFERENT pagination convention than
+// client.ListAll (which follows the Link/x-has-more headers) — the jobs
+// endpoint caps page_size at 30 and embeds its cursor in the body, so a page-1-only
+// fetch would silently drop older testboxes on a busy org.
+func fetchRunningJobs(c *client.Client) ([]testboxJobEntry, error) {
+	var all []testboxJobEntry
+	pageToken := ""
+	for page := 0; page < maxTestboxListPages; page++ {
+		params := url.Values{}
+		params.Set("states", "RUNNING")
+		if pageToken != "" {
+			params.Set("page_token", pageToken)
+		}
+		resp, err := c.ListWithParams("jobs", params)
+		if err != nil {
+			return nil, err
+		}
+		if resp.StatusCode != 200 {
+			return nil, fmt.Errorf("HTTP %d: %s", resp.StatusCode, string(resp.Body))
+		}
+
+		var body struct {
+			Jobs          []testboxJobEntry `json:"jobs"`
+			NextPageToken string            `json:"next_page_token"`
+		}
+		if err := json.Unmarshal(resp.Body, &body); err != nil {
+			return nil, err
+		}
+		all = append(all, body.Jobs...)
+
+		if body.NextPageToken == "" {
+			break
+		}
+		pageToken = body.NextPageToken
+	}
+	return all, nil
+}
+
 var testboxListCmd = &cobra.Command{
 	Use:   "list",
 	Short: "List active testboxes",
 	Long: `Lists running testboxes. Active testboxes are Semaphore debug jobs in
 state RUNNING named "sem-ai testbox" (the fixed name every 'testbox warmup'
-uses) — this filters the running-jobs list down to just those.`,
+uses) — this filters the running-jobs list down to just those, paging through
+the full RUNNING job list first so an older testbox never drops off page 1.`,
 	Example: `  sem-ai testbox list
   sem-ai testbox list --format table`,
 	RunE: func(cmd *cobra.Command, args []string) error {
@@ -551,28 +597,15 @@ uses) — this filters the running-jobs list down to just those.`,
 		}
 
 		c := client.New()
-		params := url.Values{}
-		params.Add("states", "RUNNING")
-		resp, err := c.ListWithParams("jobs", params)
+
+		allJobs, err := fetchRunningJobs(c)
 		if err != nil {
 			output.Error("api_error", err.Error(), 1)
 			return err
 		}
-		if resp.StatusCode != 200 {
-			output.Error("api_error", fmt.Sprintf("HTTP %d: %s", resp.StatusCode, string(resp.Body)), resp.StatusCode)
-			return fmt.Errorf("API returned %d", resp.StatusCode)
-		}
 
-		var listResp struct {
-			Jobs []testboxJobEntry `json:"jobs"`
-		}
-		if err := json.Unmarshal(resp.Body, &listResp); err != nil {
-			output.Error("parse_error", err.Error(), 1)
-			return err
-		}
-
-		matched := make([]testboxJobEntry, 0, len(listResp.Jobs))
-		for _, job := range listResp.Jobs {
+		matched := make([]testboxJobEntry, 0, len(allJobs))
+		for _, job := range allJobs {
 			if job.Metadata.Name == testboxJobName {
 				matched = append(matched, job)
 			}
@@ -601,12 +634,19 @@ uses) — this filters the running-jobs list down to just those.`,
 
 // jobAge renders a job's create_time (a unix-seconds string, per the jobs
 // API) as a human duration like "5m32s". Empty/unparseable input returns "".
+// A future create_time (clock skew between client and server) would make
+// time.Since negative — Duration.String() would render that as "-5s", which
+// reads as nonsense for an "age" field, so it's clamped to "0s" instead.
 func jobAge(createTime string) string {
 	sec, err := strconv.ParseInt(createTime, 10, 64)
 	if err != nil || sec <= 0 {
 		return ""
 	}
-	return time.Since(time.Unix(sec, 0)).Round(time.Second).String()
+	d := time.Since(time.Unix(sec, 0))
+	if d < 0 {
+		return "0s"
+	}
+	return d.Round(time.Second).String()
 }
 
 // projectNamesByID resolves project_id -> project name for the given jobs
