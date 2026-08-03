@@ -2,6 +2,7 @@ package testparse
 
 import (
 	"encoding/json"
+	"encoding/xml"
 	"regexp"
 	"strconv"
 	"strings"
@@ -16,6 +17,13 @@ type TestResult struct {
 	File     string `json:"file,omitempty"`
 	Line     int    `json:"line,omitempty"`
 	Message  string `json:"message,omitempty"`
+	// JobID is the originating job, when known. Only populated when parsing
+	// a Semaphore test-results JSON report that carries a per-test
+	// semaphoreEnv block (job-scope junit.json, and the workflow-scope
+	// unified report gen-pipeline-report merges from every job). It lets a
+	// caller that fetched the unified pipeline-wide report slice it back
+	// into per-job subsets.
+	JobID string `json:"job_id,omitempty"`
 }
 
 // TestReport is the parsed summary from a job's test output.
@@ -362,8 +370,8 @@ func parseMinitest(output string) *TestReport {
 
 // ParseJUnitJSON parses JUnit JSON from Semaphore's test-results CLI.
 // Supports two formats:
-//   1. Semaphore format: {"testResults": [{suites: [{tests: [...]}]}]}
-//   2. Standard JUnit JSON: [{testcases: [...]}]
+//  1. Semaphore format: {"testResults": [{suites: [{tests: [...]}]}]}
+//  2. Standard JUnit JSON: [{testcases: [...]}]
 func ParseJUnitJSON(data []byte) *TestReport {
 	// Try Semaphore test-results format first
 	if r := parseSemaphoreTestResults(data); r != nil {
@@ -401,6 +409,13 @@ func parseSemaphoreTestResults(data []byte) *TestReport {
 						Message string `json:"message"`
 						Body    string `json:"body"`
 					} `json:"failure"`
+					Error *struct {
+						Message string `json:"message"`
+						Body    string `json:"body"`
+					} `json:"error"`
+					SemEnv struct {
+						JobID string `json:"jobId"`
+					} `json:"semaphoreEnv"`
 				} `json:"tests"`
 			} `json:"suites"`
 		} `json:"testResults"`
@@ -431,9 +446,13 @@ func parseSemaphoreTestResults(data []byte) *TestReport {
 					Package: suite.Name,
 					Status:  t.State,
 					File:    t.File,
+					JobID:   t.SemEnv.JobID,
 				}
-				if t.Failure != nil {
+				switch {
+				case t.Failure != nil:
 					res.Message = t.Failure.Message
+				case t.Error != nil:
+					res.Message = t.Error.Message
 				}
 				report.Tests = append(report.Tests, res)
 			}
@@ -480,5 +499,96 @@ func parseStandardJUnit(data []byte) *TestReport {
 		}
 	}
 	report.Passed = report.Total - report.Failed - report.Skipped
+	return report
+}
+
+// junitXMLSuites is the <testsuites> wrapper some frameworks emit around
+// multiple <testsuite> elements.
+type junitXMLSuites struct {
+	XMLName xml.Name        `xml:"testsuites"`
+	Suites  []junitXMLSuite `xml:"testsuite"`
+}
+
+// junitXMLSuite is a single <testsuite>. The XMLName tag pins the expected
+// root element name so an unrelated (but well-formed) XML document doesn't
+// silently "parse" as an empty suite.
+type junitXMLSuite struct {
+	XMLName   xml.Name           `xml:"testsuite"`
+	Name      string             `xml:"name,attr"`
+	TestCases []junitXMLTestCase `xml:"testcase"`
+}
+
+type junitXMLTestCase struct {
+	Name      string           `xml:"name,attr"`
+	Classname string           `xml:"classname,attr"`
+	File      string           `xml:"file,attr"`
+	Failure   *junitXMLFailure `xml:"failure"`
+	Error     *junitXMLFailure `xml:"error"`
+	Skipped   *struct{}        `xml:"skipped"`
+}
+
+type junitXMLFailure struct {
+	Message string `xml:"message,attr"`
+	Body    string `xml:",chardata"`
+}
+
+func (f *junitXMLFailure) message() string {
+	if f.Message != "" {
+		return f.Message
+	}
+	return strings.TrimSpace(f.Body)
+}
+
+// ParseJUnitXML parses raw JUnit XML — the file the `test-results` toolbox
+// CLI publishes as a job-scope fallback (test-results/junit.xml) when the
+// pre-parsed JSON isn't available. Accepts both a <testsuites> root (multiple
+// suites) and a bare <testsuite> root (single suite, no wrapper); frameworks
+// differ on which they emit.
+func ParseJUnitXML(data []byte) *TestReport {
+	var suites []junitXMLSuite
+
+	var wrapper junitXMLSuites
+	if err := xml.Unmarshal(data, &wrapper); err == nil {
+		suites = wrapper.Suites
+	} else {
+		var single junitXMLSuite
+		if err := xml.Unmarshal(data, &single); err != nil {
+			return nil
+		}
+		suites = []junitXMLSuite{single}
+	}
+
+	report := &TestReport{Framework: "junit"}
+	for _, suite := range suites {
+		for _, tc := range suite.TestCases {
+			report.Total++
+
+			tr := TestResult{
+				Name:    tc.Name,
+				Package: tc.Classname,
+				File:    tc.File,
+			}
+
+			switch {
+			case tc.Failure != nil:
+				report.Failed++
+				tr.Status = "failed"
+				tr.Message = tc.Failure.message()
+			case tc.Error != nil:
+				report.Failed++
+				tr.Status = "failed"
+				tr.Message = tc.Error.message()
+			case tc.Skipped != nil:
+				report.Skipped++
+				tr.Status = "skipped"
+			default:
+				report.Passed++
+				tr.Status = "passed"
+			}
+
+			report.Tests = append(report.Tests, tr)
+		}
+	}
+
 	return report
 }
