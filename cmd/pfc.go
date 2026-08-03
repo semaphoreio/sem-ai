@@ -31,8 +31,6 @@ Scope follows --project: pass it for the project-level check, omit it for the
 organization-wide one.`,
 }
 
-// pfcScope is the resolved target of a pre-flight check call: a project id, or
-// empty for the organization-wide check.
 type pfcScope struct {
 	projectID string
 }
@@ -53,7 +51,6 @@ func resolvePFCScope(projectFlag string) (pfcScope, error) {
 
 func (s pfcScope) isProject() bool { return s.projectID != "" }
 
-// name is the scope word used in messages and in permission names.
 func (s pfcScope) name() string {
 	if s.isProject() {
 		return "project"
@@ -61,8 +58,6 @@ func (s pfcScope) name() string {
 	return "organization"
 }
 
-// params returns the query parameters that pin the request to this scope: none
-// for the organization-wide check.
 func (s pfcScope) params() url.Values {
 	if !s.isProject() {
 		return nil
@@ -70,15 +65,10 @@ func (s pfcScope) params() url.Values {
 	return url.Values{"project_id": {s.projectID}}
 }
 
-// permission names the RBAC permission the API checks for an action, e.g.
-// project.pre_flight_checks.manage.
 func (s pfcScope) permission(action string) string {
 	return fmt.Sprintf("%s.pre_flight_checks.%s", s.name(), action)
 }
 
-// pfcSpec is the pre-flight check itself: the commands to run, the secrets they
-// need, and the agent to run them on. It is both the PATCH body and the
-// --from-file schema, hence the two sets of struct tags.
 type pfcSpec struct {
 	Commands []string  `json:"commands" yaml:"commands"`
 	Secrets  []string  `json:"secrets" yaml:"secrets"`
@@ -90,8 +80,6 @@ type pfcAgent struct {
 	OsImage     string `json:"os_image,omitempty" yaml:"os_image,omitempty"`
 }
 
-// pfcApplyFlags holds the flag values for apply. The spec comes either from the
-// inline flags or from --from-file, never both.
 type pfcApplyFlags struct {
 	project     string
 	commands    []string
@@ -105,9 +93,6 @@ func (f *pfcApplyFlags) hasInlineSpec() bool {
 	return len(f.commands) > 0 || len(f.secrets) > 0 || f.machineType != "" || f.osImage != ""
 }
 
-// spec resolves the flags into the check to apply, rejecting the two ambiguous
-// input combinations (both sources, neither source) and any spec with no
-// commands — a check that runs nothing is never what the caller meant.
 func (f *pfcApplyFlags) spec() (*pfcSpec, error) {
 	spec, err := f.readSpec()
 	if err != nil {
@@ -159,8 +144,6 @@ func loadPFCSpecFile(path string) (*pfcSpec, error) {
 	return &spec, nil
 }
 
-// pfcServerMessage pulls the human-readable message out of an API error body,
-// which may key it as "message" or "error".
 func pfcServerMessage(body []byte) string {
 	var payload map[string]any
 	if err := json.Unmarshal(body, &payload); err != nil {
@@ -174,9 +157,6 @@ func pfcServerMessage(body []byte) string {
 	return ""
 }
 
-// pfcErrorMessage turns a non-2xx response into something a caller can act on:
-// the server's own words when the feature is off, a named missing permission on
-// a 401, and "not configured" rather than a bare 404.
 func pfcErrorMessage(resp *client.Response, scope pfcScope, action string) string {
 	server := pfcServerMessage(resp.Body)
 	if strings.Contains(strings.ToLower(server), "not enabled") {
@@ -197,8 +177,6 @@ func pfcErrorMessage(resp *client.Response, scope pfcScope, action string) strin
 	return fmt.Sprintf("HTTP %d: %s", resp.StatusCode, string(resp.Body))
 }
 
-// pfcFail reports an API failure through output and returns the error cobra
-// propagates to the exit code.
 func pfcFail(resp *client.Response, scope pfcScope, action string) error {
 	output.Error("api_error", pfcErrorMessage(resp, scope, action), resp.StatusCode)
 	return fmt.Errorf("API returned %d", resp.StatusCode)
