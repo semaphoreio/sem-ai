@@ -349,6 +349,10 @@ An explicit selector (1 or 2) fully shadows everything below it — no mixing of
 
 An unknown context name fails hard and lists the available contexts.
 
+Over MCP, `context` is a parameter on every tool, so a single server can serve calls pinned to different orgs.
+
+This pins the *read* path. `context switch` and `connect` still write `active-context`, and that key stays shared — pinning is how a session opts out of it. The write itself is atomic (temp file + rename), so a concurrent reader never sees a half-written `~/.sem.yaml`.
+
 ## Development
 
 ```shell

@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"github.com/semaphoreio/sem-ai/pkg/client"
+	"github.com/semaphoreio/sem-ai/pkg/config"
 	"github.com/semaphoreio/sem-ai/pkg/output"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
@@ -36,7 +37,7 @@ var connectCmd = &cobra.Command{
 		viper.Set("active-context", name)
 		viper.Set(fmt.Sprintf("contexts.%s.auth.token", name), token)
 		viper.Set(fmt.Sprintf("contexts.%s.host", name), host)
-		if err := viper.WriteConfig(); err != nil {
+		if err := config.Write(); err != nil {
 			output.Error("config_error", fmt.Sprintf("failed to write config: %s", err), 1)
 			return err
 		}

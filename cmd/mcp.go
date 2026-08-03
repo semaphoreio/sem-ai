@@ -66,8 +66,9 @@ func runMCPServer() error {
 	return server.ServeStdio(s)
 }
 
-// registerCobraTools walks the cobra command tree and registers each leaf command as an MCP tool.
-func registerCobraTools(s *server.MCPServer, cmd *cobra.Command, prefix string) {
+// eachToolLeaf visits every cobra leaf command that becomes an MCP tool,
+// passing the leaf and its underscore-joined tool name.
+func eachToolLeaf(cmd *cobra.Command, prefix string, fn func(*cobra.Command, string)) {
 	for _, child := range cmd.Commands() {
 		name := child.Name()
 		// Skip non-tool commands and long-running commands that hold the mutex
@@ -82,18 +83,29 @@ func registerCobraTools(s *server.MCPServer, cmd *cobra.Command, prefix string) 
 		}
 
 		if child.HasSubCommands() {
-			registerCobraTools(s, child, fullName)
+			eachToolLeaf(child, fullName, fn)
 			continue
 		}
 
-		tool := buildMCPTool(child, fullName)
-		handler := buildMCPHandler(child)
-		s.AddTool(tool, handler)
+		fn(child, fullName)
 	}
+}
+
+// registerCobraTools walks the cobra command tree and registers each leaf command as an MCP tool.
+func registerCobraTools(s *server.MCPServer, cmd *cobra.Command, prefix string) {
+	eachToolLeaf(cmd, prefix, func(leaf *cobra.Command, toolName string) {
+		s.AddTool(buildMCPTool(leaf, toolName), buildMCPHandler(leaf))
+	})
 }
 
 // buildMCPTool creates an MCP tool definition from a cobra command.
 func buildMCPTool(cmd *cobra.Command, toolName string) mcp.Tool {
+	// Cobra folds a parent's persistent flags into cmd.Flags() lazily, at
+	// ParseFlags time. Tool schemas are built at registration, before any leaf
+	// has ever parsed, so without this the root persistent flags (--context)
+	// are missing from every schema. InheritedFlags() forces the merge.
+	cmd.InheritedFlags()
+
 	opts := []mcp.ToolOption{
 		mcp.WithDescription(cmd.Short),
 	}
@@ -132,6 +144,49 @@ func buildMCPTool(cmd *cobra.Command, toolName string) mcp.Tool {
 	return mcp.NewTool(toolName, opts...)
 }
 
+// toolCLIArgs turns an MCP tool call's arguments back into the argv the cobra
+// tree expects: command path, positional args, then flags.
+func toolCLIArgs(target *cobra.Command, args map[string]any) []string {
+	cliArgs := commandPath(target)
+
+	if argsVal, ok := args["args"]; ok {
+		if v, ok := argsVal.(string); ok && v != "" {
+			cliArgs = append(cliArgs, v)
+		}
+	}
+
+	target.Flags().VisitAll(func(f *pflag.Flag) {
+		if f.Name == "format" || f.Name == "verbose" || f.Name == "examples" || f.Name == "help" {
+			return
+		}
+
+		val, ok := args[f.Name]
+		if !ok || val == nil {
+			return
+		}
+
+		switch f.Value.Type() {
+		case "bool":
+			if b, ok := val.(bool); ok && b {
+				cliArgs = append(cliArgs, "--"+f.Name)
+			}
+		case "stringArray", "stringSlice":
+			if arr, ok := val.([]interface{}); ok {
+				for _, item := range arr {
+					cliArgs = append(cliArgs, "--"+f.Name, fmt.Sprintf("%v", item))
+				}
+			}
+		case "int":
+			cliArgs = append(cliArgs, "--"+f.Name, fmt.Sprintf("%v", val))
+		default:
+			cliArgs = append(cliArgs, "--"+f.Name, fmt.Sprintf("%v", val))
+		}
+	})
+
+	// Force JSON
+	return append(cliArgs, "--format", "json")
+}
+
 // buildMCPHandler returns a handler that captures cobra output via SetOut/SetErr
 // (never touching os.Stdout/os.Stderr which the MCP server uses).
 func buildMCPHandler(target *cobra.Command) server.ToolHandlerFunc {
@@ -139,50 +194,7 @@ func buildMCPHandler(target *cobra.Command) server.ToolHandlerFunc {
 		executeMu.Lock()
 		defer executeMu.Unlock()
 
-		args := request.GetArguments()
-
-		// Build CLI args: command path + positional + flags
-		var cliArgs []string
-		cliArgs = append(cliArgs, commandPath(target)...)
-
-		// Positional args
-		if argsVal, ok := args["args"]; ok {
-			if v, ok := argsVal.(string); ok && v != "" {
-				cliArgs = append(cliArgs, v)
-			}
-		}
-
-		// Flags
-		target.Flags().VisitAll(func(f *pflag.Flag) {
-			if f.Name == "format" || f.Name == "verbose" || f.Name == "examples" || f.Name == "help" {
-				return
-			}
-
-			val, ok := args[f.Name]
-			if !ok || val == nil {
-				return
-			}
-
-			switch f.Value.Type() {
-			case "bool":
-				if b, ok := val.(bool); ok && b {
-					cliArgs = append(cliArgs, "--"+f.Name)
-				}
-			case "stringArray", "stringSlice":
-				if arr, ok := val.([]interface{}); ok {
-					for _, item := range arr {
-						cliArgs = append(cliArgs, "--"+f.Name, fmt.Sprintf("%v", item))
-					}
-				}
-			case "int":
-				cliArgs = append(cliArgs, "--"+f.Name, fmt.Sprintf("%v", val))
-			default:
-				cliArgs = append(cliArgs, "--"+f.Name, fmt.Sprintf("%v", val))
-			}
-		})
-
-		// Force JSON
-		cliArgs = append(cliArgs, "--format", "json")
+		cliArgs := toolCLIArgs(target, request.GetArguments())
 
 		result, err := executeCobra(cliArgs)
 		if err != nil {

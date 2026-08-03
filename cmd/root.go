@@ -66,6 +66,15 @@ var rootCmd = &cobra.Command{
 			return errExamplesShown
 		}
 
+		// Resolving the context can fail (unknown --context name). It has to
+		// fail this one command, not the process: on the MCP surface every
+		// tool call re-enters here, so exiting would let one bad argument
+		// take down the server for every other session.
+		if err := initConfig(); err != nil {
+			output.Error("config_error", err.Error(), 1)
+			return err
+		}
+
 		// Best-effort passive version notice. Synchronous cache-fresh path
 		// is sub-ms; stale path spawns a goroutine and returns immediately.
 		// Gating handled in shouldSkipPersistentCheck.
@@ -130,19 +139,20 @@ func patchArgsForExamples(cmd *cobra.Command) {
 }
 
 func init() {
-	cobra.OnInitialize(initConfig)
-
 	rootCmd.PersistentFlags().StringVarP(&formatFlag, "format", "f", "json", "output format: json, table, yaml")
 	rootCmd.PersistentFlags().BoolVarP(&verboseFlag, "verbose", "v", false, "verbose output (show HTTP requests)")
 	rootCmd.PersistentFlags().BoolVar(&examplesFlag, "examples", false, "show command examples and exit")
 	rootCmd.PersistentFlags().StringVar(&contextFlag, "context", "", "named context from ~/.sem.yaml to use for this invocation (overrides SEM_CONTEXT and the active context, read-only)")
 }
 
-func initConfig() {
+// initConfig locates ~/.sem.yaml, reads it, and resolves the context this
+// invocation runs against. Called from PersistentPreRunE — after flag parsing,
+// so --context is populated — rather than from cobra.OnInitialize, which
+// cannot report a failure.
+func initConfig() error {
 	home, err := homedir.Dir()
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "failed to find home directory: %v\n", err)
-		os.Exit(1)
+		return fmt.Errorf("failed to find home directory: %w", err)
 	}
 
 	viper.AddConfigPath(home)
@@ -160,8 +170,5 @@ func initConfig() {
 	}
 
 	config.SetExplicitContext(contextFlag)
-	if err := config.Load(); err != nil {
-		fmt.Fprintln(os.Stderr, "Error:", err)
-		os.Exit(1)
-	}
+	return config.Load()
 }

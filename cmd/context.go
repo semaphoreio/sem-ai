@@ -115,7 +115,7 @@ var contextSwitchCmd = &cobra.Command{
 			return fmt.Errorf("context not found")
 		}
 		viper.Set("active-context", target)
-		if err := viper.WriteConfig(); err != nil {
+		if err := config.Write(); err != nil {
 			output.Error("config_error", err.Error(), 1)
 			return err
 		}
