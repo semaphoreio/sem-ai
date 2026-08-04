@@ -62,6 +62,12 @@ blocks:
             - go tool cover -func=coverage.out
             - artifact push workflow coverage.out --force
 
+        - name: GoReleaser check
+          commands:
+            - curl -sfL https://goreleaser.com/static/run -o /tmp/goreleaser-run
+            - chmod +x /tmp/goreleaser-run
+            - /tmp/goreleaser-run check
+
   - name: Security
     dependencies: []
     task:
@@ -70,20 +76,6 @@ blocks:
           commands:
             - curl -sSfL https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/junit.tpl -o /tmp/junit.tpl
             - docker run --rm -v "$(pwd):/workspace" -v /tmp/junit.tpl:/tmp/junit.tpl -w /workspace aquasec/trivy:0.70.0 fs --scanners vuln,secret,misconfig --severity HIGH,CRITICAL --exit-code 1 --format template --template '@/tmp/junit.tpl' --output junit-trivy.xml .
-
-  - name: Build snapshot
-    dependencies: []
-    task:
-      jobs:
-        - name: GoReleaser snapshot
-          commands:
-            - cache restore go-mod-$(checksum go.sum),go-mod-main
-            - cache restore go-build-$SEMAPHORE_GIT_BRANCH,go-build-main
-            - curl -sfL https://goreleaser.com/static/run -o /tmp/goreleaser-run
-            - chmod +x /tmp/goreleaser-run
-            - /tmp/goreleaser-run release --snapshot --clean --skip=before
-            - cache store go-mod-$(checksum go.sum) ~/go/pkg/mod
-            - cache store go-build-$SEMAPHORE_GIT_BRANCH ~/.cache/go-build
 
 promotions:
   - name: Publish snapshot
