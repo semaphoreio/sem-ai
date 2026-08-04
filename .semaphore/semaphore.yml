@@ -78,10 +78,6 @@ blocks:
             - docker run --rm -v "$(pwd):/workspace" -v /tmp/junit.tpl:/tmp/junit.tpl -w /workspace aquasec/trivy:0.70.0 fs --scanners vuln,secret,misconfig --severity HIGH,CRITICAL --exit-code 1 --format template --template '@/tmp/junit.tpl' --output junit-trivy.xml .
 
 promotions:
-  - name: Publish snapshot
-    pipeline_file: snapshot.yml
-    deployment_target: snapshot
-
   - name: Publish GitHub Release
     pipeline_file: release.yml
     deployment_target: release
