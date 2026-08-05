@@ -287,9 +287,12 @@ func finishSignin(tok *tokenResp, host, orgName, orgHost string, orgc *http.Clie
 		saveHost = tok.Host
 	}
 
-	// No org requested: save the account context and report it.
+	// No org requested: save the account token, then discover the organizations
+	// the user belongs to and activate one, so the next API call targets a real
+	// org host instead of the account host (me.<domain>), which 401s every
+	// org-scoped endpoint.
 	if orgName == "" {
-		return saveSigninContext(saveHost, tok.Token, tok.TokenAction)
+		return finishAccountSignin(saveHost, tok.Token, tok.TokenAction, w)
 	}
 
 	if tok.TokenAction == "rotated" {
@@ -619,6 +622,136 @@ func createFirstOrg(httpc *http.Client, baseURL, token, name, orgHost string, w 
 		"organization":    org.Username,
 	})
 	return nil
+}
+
+// userOrg mirrors one element of the account-level GET
+// /api/v1alpha/organizations response (the authenticated user's own orgs).
+// `username` is the org subdomain; the org's context host is
+// "<username>.<domain>".
+type userOrg struct {
+	OrganizationID string `json:"organization_id"`
+	Name           string `json:"name"`
+	Username       string `json:"username"`
+	CreatedAt      string `json:"created_at"`
+}
+
+// finishAccountSignin runs after a no-`--org` sign-in. It saves the account
+// token, lists the organizations the user belongs to, writes a context per org
+// (host "<org_username>.<domain>", reusing the account token), and activates
+// one so the very next API call hits a real org host instead of the account
+// host (me.<domain>), which 401s every org-scoped endpoint. Org discovery is a
+// convenience: if it fails, the sign-in still succeeds with the account context
+// saved and a clear pointer to `connect`/`context switch`.
+func finishAccountSignin(accountHost, token, tokenAction string, w io.Writer) error {
+	orgs, err := listUserOrgs(accountHost, token)
+	if err != nil {
+		// Sign-in itself succeeded; don't fail the command. Save the account
+		// context (active) as a fallback and tell the user how to reach an org.
+		fmt.Fprintf(w, "Signed in, but could not list your organizations: %s\n", err)
+		fmt.Fprintf(w, "Your token is saved. Reach an org with `sem-ai connect <org-host> <token>` or `sem-ai context switch`.\n")
+		return saveSigninContext(accountHost, token, tokenAction)
+	}
+
+	if len(orgs) == 0 {
+		fmt.Fprintf(w, "Signed in. You are not a member of any organization yet - create one in the web app, or run `sem-ai signin --org <name> --org-host <org-host>`.\n")
+		return saveSigninContext(accountHost, token, tokenAction)
+	}
+
+	// Keep the account context in the file (not active) as the token's home,
+	// mirroring the --org create path; the chosen org context is activated below.
+	if _, err := writeContext(accountHost, token, false); err != nil {
+		output.Error("config_error", fmt.Sprintf("failed to write config: %s", err), 1)
+		return err
+	}
+
+	domain := domainFromAccountHost(accountHost)
+	active := mostRecentOrg(orgs)
+
+	written := make([]map[string]string, 0, len(orgs))
+	var activeHost, activeName string
+
+	for _, o := range orgs {
+		host := o.Username + "." + domain
+		name, err := writeContext(host, token, o.Username == active.Username)
+		if err != nil {
+			output.Error("config_error", fmt.Sprintf("signed in, but saving org context %q failed: %s", host, err), 1)
+			return err
+		}
+		if o.Username == active.Username {
+			activeHost, activeName = host, name
+		}
+		written = append(written, map[string]string{
+			"host":            host,
+			"context":         name,
+			"organization":    o.Username,
+			"organization_id": o.OrganizationID,
+		})
+	}
+
+	if len(orgs) > 1 {
+		fmt.Fprintf(w, "Signed in. Activated %q (%d organizations available); switch with `sem-ai context switch <name>`.\n", activeHost, len(orgs))
+	} else {
+		fmt.Fprintf(w, "Signed in. Activated %q.\n", activeHost)
+	}
+
+	res := map[string]any{
+		"status":        "signed_in",
+		"host":          activeHost,
+		"context":       activeName,
+		"organizations": written,
+	}
+	if tokenAction != "" {
+		res["token_action"] = tokenAction
+	}
+	output.Result(res)
+	return nil
+}
+
+// listUserOrgs fetches the authenticated user's organizations from the
+// account-level GET /api/v1alpha/organizations endpoint, using the same
+// pkg/client machinery as the rest of the CLI. Returns a non-nil error on a
+// transport failure or any non-200 status.
+func listUserOrgs(accountHost, token string) ([]userOrg, error) {
+	c := client.NewWithConfig(token, accountHost)
+	resp, err := c.List("organizations")
+	if err != nil {
+		return nil, err
+	}
+	if resp.StatusCode != 200 {
+		return nil, fmt.Errorf("HTTP %d: %s", resp.StatusCode, strings.TrimSpace(string(resp.Body)))
+	}
+	var orgs []userOrg
+	if err := json.Unmarshal(resp.Body, &orgs); err != nil {
+		return nil, fmt.Errorf("invalid organizations response: %w", err)
+	}
+	return orgs, nil
+}
+
+// domainFromAccountHost derives the deployment domain from the account host,
+// which is "me.<domain>". Falls back to stripping the first DNS label if the
+// host does not start with "me.".
+func domainFromAccountHost(host string) string {
+	if strings.HasPrefix(host, "me.") {
+		return strings.TrimPrefix(host, "me.")
+	}
+	if i := strings.Index(host, "."); i >= 0 {
+		return host[i+1:]
+	}
+	return host
+}
+
+// mostRecentOrg picks the org to activate when the user has several: the most
+// recently created. created_at is an ISO8601 UTC string, so lexical comparison
+// matches chronological order. Falls back to the first org when timestamps are
+// absent or equal.
+func mostRecentOrg(orgs []userOrg) userOrg {
+	active := orgs[0]
+	for _, o := range orgs[1:] {
+		if o.CreatedAt > active.CreatedAt {
+			active = o
+		}
+	}
+	return active
 }
 
 // contextNameForHost returns the context name a host maps to.
