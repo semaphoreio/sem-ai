@@ -40,12 +40,14 @@ Requires Go 1.25+.
 
 sem-ai ships its skill bundle as a Claude Code / Codex plugin.
 
-**Claude Code** — from inside the host, install with two slash commands:
+**Claude Code** — install from the shell:
 
+```sh
+claude plugin marketplace add semaphoreio/sem-ai
+claude plugin install sem-ai@semaphoreio
 ```
-/plugin marketplace add semaphoreio/sem-ai
-/plugin install sem-ai@semaphoreio
-```
+
+(The same two commands work interactively inside a session as `/plugin marketplace add …` and `/plugin install …`.)
 
 **Codex CLI** — install from the shell:
 
@@ -58,12 +60,12 @@ The plugin drops every sem-ai skill (debug-pipeline, deploy, fix-flaky, gha-to-s
 
 Claude Code refreshes registered marketplaces at session start, picks up the new plugin version, and applies it automatically — there is no manifest flag to set for this. To force an immediate refresh:
 
-```
-/plugin marketplace update semaphoreio
-/reload-plugins
+```sh
+claude plugin marketplace update semaphoreio
+claude plugin update sem-ai@semaphoreio    # restart running sessions to apply
 ```
 
-(Note: there is no `/plugin update <plugin>@<marketplace>` command — refresh the marketplace and let auto-update apply, or `uninstall` + `install` for a forced re-install.)
+Codex equivalent: `codex plugin marketplace upgrade semaphoreio`. From inside a running Claude Code session, `/plugin marketplace update semaphoreio` followed by `/reload-plugins` does the same without a restart (note: there is no interactive `/plugin update` slash command — forced re-install is `uninstall` + `install`, or the shell command above).
 
 Skills follow the [Agent Skills](https://agentskills.io) standard and give agents context on when and how to use each sem-ai command without reading documentation.
 

@@ -12,7 +12,8 @@ must be installed separately.
 
 ## When this skill applies
 
-The user has installed the sem-ai plugin (via `/plugin install sem-ai@semaphoreio`)
+The user has installed the sem-ai plugin (`claude plugin install sem-ai@semaphoreio`,
+`codex plugin add sem-ai@semaphoreio`, or the in-session `/plugin` flow)
 but is hitting one of:
 
 - "command not found: sem-ai"
