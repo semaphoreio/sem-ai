@@ -79,8 +79,6 @@ if [ -x "$dest" ]; then
     say "Codex CLI — refresh from the shell:"
     say "  codex plugin marketplace upgrade semaphoreio"
     say "(First time? Install with:  codex plugin marketplace add semaphoreio/sem-ai && codex plugin add sem-ai@semaphoreio )"
-    say ""
-    say "(Already-running sessions: /reload-plugins in Claude Code, or restart the session.)"
     exit 0
   fi
 fi
@@ -127,8 +125,6 @@ say "Codex CLI — install (or refresh) from the shell:"
 say "  codex plugin marketplace add semaphoreio/sem-ai    # first time only"
 say "  codex plugin add sem-ai@semaphoreio                # first time"
 say "  codex plugin marketplace upgrade semaphoreio       # already installed — refresh catalog"
-say ""
-say "(Already-running sessions: /reload-plugins in Claude Code, or restart the session.)"
 say ""
 say "Then run /sem-ai:init in a repo to set up Semaphore CI/CD for it."
 say ""

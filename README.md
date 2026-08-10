@@ -47,8 +47,6 @@ claude plugin marketplace add semaphoreio/sem-ai
 claude plugin install sem-ai@semaphoreio
 ```
 
-(The same two commands work interactively inside a session as `/plugin marketplace add …` and `/plugin install …`.)
-
 **Codex CLI** — install from the shell:
 
 ```sh
@@ -65,7 +63,7 @@ claude plugin marketplace update semaphoreio
 claude plugin update sem-ai@semaphoreio    # restart running sessions to apply
 ```
 
-Codex equivalent: `codex plugin marketplace upgrade semaphoreio`. From inside a running Claude Code session, `/plugin marketplace update semaphoreio` followed by `/reload-plugins` does the same without a restart (note: there is no interactive `/plugin update` slash command — forced re-install is `uninstall` + `install`, or the shell command above).
+Codex equivalent: `codex plugin marketplace upgrade semaphoreio`.
 
 Skills follow the [Agent Skills](https://agentskills.io) standard and give agents context on when and how to use each sem-ai command without reading documentation.
 
