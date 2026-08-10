@@ -115,15 +115,18 @@ var contextSwitchCmd = &cobra.Command{
 			return fmt.Errorf("context not found")
 		}
 		viper.Set("active-context", target)
-		if err := viper.WriteConfig(); err != nil {
+		if err := config.Write(); err != nil {
 			output.Error("config_error", err.Error(), 1)
 			return err
 		}
-		config.Load()
+		if err := config.Load(); err != nil {
+			output.Error("config_error", err.Error(), 1)
+			return err
+		}
 		output.Result(map[string]string{
 			"status":  "switched",
 			"context": target,
-			"host":    config.GetHost(),
+			"host":    viper.GetString(fmt.Sprintf("contexts.%s.host", target)),
 		})
 		return nil
 	},
