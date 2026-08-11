@@ -19,7 +19,17 @@ var permissionScopeFlag string
 
 var permissionListCmd = &cobra.Command{
 	Use:   "list",
-	Short: "List available permissions",
+	Short: "List the permission types defined for a scope (the catalog, NOT your grants)",
+	Long: `List the catalog of permission types the platform defines for a scope.
+
+IMPORTANT: this returns every permission that EXISTS for the org/project
+scope (e.g. project.job.rerun, project.view). It does NOT tell you which of
+them the current token's user actually holds; it is not a "what am I allowed
+to do" check. The public API does not currently expose per-user effective
+permissions, so do not use this output to decide whether an action will be
+permitted. Attempt the action and handle the
+failure instead. Note that this API masks an RBAC denial as HTTP 404 "Not Found",
+not 403, so a denial is indistinguishable from a missing resource.`,
 	Example: `  sem-ai permission list
   sem-ai permission list --scope project`,
 	RunE: func(cmd *cobra.Command, args []string) error {
