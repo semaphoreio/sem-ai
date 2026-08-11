@@ -327,7 +327,7 @@ var (
 
 var workflowRunCmd = &cobra.Command{
 	Use:   "run",
-	Short: "Trigger a new workflow run for a project on a branch",
+	Short: "Trigger a new workflow run for a project on a branch; a 404 may mean insufficient permission, not a missing project",
 	Long: `Create and trigger a brand-new workflow run.
 
 This POSTs to the Semaphore workflows API to schedule a fresh workflow for a
@@ -357,7 +357,10 @@ not exist OR the token's user lacks project.job.rerun.`,
 
 		reference := wfRunBranchFlag
 		if reference == "" {
-			if b, berr := gitutil.CurrentBranch(); berr == nil {
+			// A detached HEAD makes "git rev-parse --abbrev-ref HEAD" print the
+			// literal string "HEAD" (not empty, not an error) — that's not a
+			// usable branch/reference, so treat it the same as "not detected".
+			if b, berr := gitutil.CurrentBranch(); berr == nil && b != "HEAD" {
 				reference = b
 			}
 		}
@@ -374,9 +377,14 @@ not exist OR the token's user lacks project.job.rerun.`,
 			}
 		}
 
+		// request_token is the same idempotency key workflow rerun/stop pass to
+		// the reschedule/terminate actions — it lets client.doWithRetry retry a
+		// timed-out or 5xx create without the server scheduling a duplicate
+		// workflow for the same request.
 		payload := map[string]string{
-			"project_id": projectID,
-			"reference":  reference,
+			"project_id":    projectID,
+			"reference":     reference,
+			"request_token": client.NewRequestToken(),
 		}
 		if commit != "" {
 			payload["commit_sha"] = commit
