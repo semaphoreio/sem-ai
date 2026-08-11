@@ -665,19 +665,39 @@ func finishAccountSignin(accountHost, token, tokenAction string, w io.Writer) er
 	}
 
 	domain := domainFromAccountHost(accountHost)
-	active := mostRecentOrg(orgs)
+
+	// Re-signin vs first-time: read the active context BEFORE writing any org
+	// context. If it already points at one of this account's orgs, this is a
+	// re-signin (lost token / new machine) — refresh every org's token but leave
+	// the active org exactly where the user had it, never silently retargeting
+	// the CLI to the newest-created org. Only a first-time signin (no active org
+	// context yet) auto-activates one, and then the most recently created.
+	existingActive := viper.GetString("active-context")
+	orgContextNames := make(map[string]bool, len(orgs))
+	for _, o := range orgs {
+		orgContextNames[contextNameForHost(o.Username+"."+domain)] = true
+	}
+	autoActivate := !orgContextNames[existingActive]
+
+	var active userOrg
+	if autoActivate {
+		active = mostRecentOrg(orgs)
+	}
 
 	written := make([]map[string]string, 0, len(orgs))
 	var activeHost, activeName string
 
 	for _, o := range orgs {
 		host := o.Username + "." + domain
-		name, err := writeContext(host, token, o.Username == active.Username)
+		// Refresh the token for every org context (expected on re-auth), but only
+		// flip active-context when this is a first-time signin.
+		makeActive := autoActivate && o.Username == active.Username
+		name, err := writeContext(host, token, makeActive)
 		if err != nil {
 			output.Error("config_error", fmt.Sprintf("signed in, but saving org context %q failed: %s", host, err), 1)
 			return err
 		}
-		if o.Username == active.Username {
+		if makeActive || (!autoActivate && name == existingActive) {
 			activeHost, activeName = host, name
 		}
 		written = append(written, map[string]string{
@@ -688,9 +708,12 @@ func finishAccountSignin(accountHost, token, tokenAction string, w io.Writer) er
 		})
 	}
 
-	if len(orgs) > 1 {
+	switch {
+	case !autoActivate:
+		fmt.Fprintf(w, "Signed in. Left your active context %q unchanged (%d organizations available); switch with `sem-ai context switch <name>`.\n", activeName, len(orgs))
+	case len(orgs) > 1:
 		fmt.Fprintf(w, "Signed in. Activated %q (%d organizations available); switch with `sem-ai context switch <name>`.\n", activeHost, len(orgs))
-	} else {
+	default:
 		fmt.Fprintf(w, "Signed in. Activated %q.\n", activeHost)
 	}
 

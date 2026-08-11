@@ -984,6 +984,54 @@ func TestFinishSignin_NoOrg_MultipleOrgs(t *testing.T) {
 	}
 }
 
+// TestFinishSignin_NoOrg_ReSigninKeepsActiveContext: on a re-signin (a context
+// for one of the account's orgs is already active), a no-org signin must NOT
+// switch the active context to the most-recently-created org. It refreshes
+// every org's token but leaves the active org exactly where the user had it.
+func TestFinishSignin_NoOrg_ReSigninKeepsActiveContext(t *testing.T) {
+	setupConfig(t)
+
+	// Pre-existing state: the user was already active on the OLDER org with a
+	// stale token, as a prior signin would have left it.
+	if _, err := writeContext("old.example.com", "stale-token", true); err != nil {
+		t.Fatal(err)
+	}
+	if got := viper.GetString("active-context"); got != "old_example_com" {
+		t.Fatalf("precondition: active-context = %q, want old_example_com", got)
+	}
+
+	newOrgListServer(t, 200, `[
+		{"organization_id":"org-old","name":"Old","username":"old","created_at":"2020-01-01T00:00:00Z"},
+		{"organization_id":"org-new","name":"New","username":"new","created_at":"2024-06-01T00:00:00Z"}
+	]`)
+
+	var note strings.Builder
+	tok := &tokenResp{Token: "acct-token", TokenAction: "rotated"}
+	if err := finishSignin(tok, "me.example.com", "", "", nil, "", &note); err != nil {
+		t.Fatalf("finishSignin: %v", err)
+	}
+
+	// The active context is UNCHANGED — still the older org, NOT retargeted to
+	// the most-recently-created one. This is the fix.
+	if got := viper.GetString("active-context"); got != "old_example_com" {
+		t.Errorf("active-context = %q, want old_example_com (re-signin must not switch)", got)
+	}
+	// Both org contexts exist and their tokens were refreshed to the new one.
+	if got := viper.GetString("contexts.old_example_com.auth.token"); got != "acct-token" {
+		t.Errorf("old org token = %q, want acct-token (refreshed on re-auth)", got)
+	}
+	if got := viper.GetString("contexts.new_example_com.auth.token"); got != "acct-token" {
+		t.Errorf("new org token = %q, want acct-token", got)
+	}
+	if got := viper.GetString("contexts.new_example_com.host"); got != "new.example.com" {
+		t.Errorf("new org host = %q, want new.example.com", got)
+	}
+	// The user is told the active context was left alone.
+	if !strings.Contains(note.String(), "unchanged") {
+		t.Errorf("expected a note that the active context was kept, got: %q", note.String())
+	}
+}
+
 // TestFinishSignin_NoOrg_ZeroOrgs: an account with no orgs is handled
 // gracefully — account context saved and active, a clear message, no crash.
 func TestFinishSignin_NoOrg_ZeroOrgs(t *testing.T) {
