@@ -3,6 +3,7 @@ package cmd
 import (
 	"encoding/json"
 	"net/http"
+	"os/exec"
 	"strings"
 	"testing"
 )
@@ -99,6 +100,9 @@ func TestWorkflowRunCreatesWorkflow(t *testing.T) {
 	if create.Body["commit_sha"] != "deadbeef" {
 		t.Errorf("commit_sha = %v, want deadbeef", create.Body["commit_sha"])
 	}
+	if rt, ok := create.Body["request_token"].(string); !ok || rt == "" {
+		t.Errorf("request_token missing or empty in create payload; got %v", create.Body["request_token"])
+	}
 	if !strings.Contains(out.String(), "wf-uuid-1") {
 		t.Errorf("output missing workflow_id; got %q", out.String())
 	}
@@ -191,5 +195,45 @@ func TestWorkflowRunRequiresBranch(t *testing.T) {
 	}
 	if n := count(reqs, "POST", "/api/v1alpha/plumber-workflows"); n != 0 {
 		t.Errorf("must not POST create without a reference; got %d POSTs", n)
+	}
+}
+
+// TestWorkflowRunRequiresBranchDetachedHEAD: in a detached HEAD,
+// `git rev-parse --abbrev-ref HEAD` prints the literal string "HEAD" (not
+// empty, not an error). Without the guard, that string would be posted as
+// the workflow's reference, which the server cannot schedule against. It
+// must be treated the same as "no branch detected".
+func TestWorkflowRunRequiresBranchDetachedHEAD(t *testing.T) {
+	reqs, _, _ := apiMock(t, func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == "GET" && r.URL.Path == "/api/v1alpha/projects/proj-uuid-123" {
+			writeJSON(w, 200, map[string]any{"metadata": map[string]any{"id": "proj-uuid-123"}})
+			return
+		}
+		writeJSON(w, 404, map[string]any{"message": "not found"})
+	})
+	resetWorkflowRunFlags()
+	wfRunProjectFlag = "proj-uuid-123"
+
+	dir := t.TempDir()
+	t.Chdir(dir)
+	runGit := func(args ...string) {
+		c := exec.Command("git", args...)
+		c.Dir = dir
+		if out, err := c.CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %v\n%s", args, err, out)
+		}
+	}
+	runGit("init")
+	runGit("config", "user.email", "test@example.com")
+	runGit("config", "user.name", "test")
+	runGit("commit", "--allow-empty", "-m", "init")
+	runGit("checkout", "--detach")
+
+	err := workflowRunCmd.RunE(workflowRunCmd, nil)
+	if err == nil {
+		t.Fatal("expected error when HEAD is detached and no --branch given")
+	}
+	if n := count(reqs, "POST", "/api/v1alpha/plumber-workflows"); n != 0 {
+		t.Errorf("must not POST create with reference=HEAD; got %d POSTs", n)
 	}
 }
