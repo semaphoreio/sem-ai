@@ -8,6 +8,7 @@ import (
 
 	"github.com/semaphoreio/sem-ai/pkg/client"
 	"github.com/semaphoreio/sem-ai/pkg/config"
+	"github.com/semaphoreio/sem-ai/pkg/gitutil"
 	"github.com/semaphoreio/sem-ai/pkg/output"
 	"github.com/spf13/cobra"
 )
@@ -318,15 +319,31 @@ var workflowStopCmd = &cobra.Command{
 }
 
 var (
-	wfRunProjectFlag string
-	wfRunBranchFlag  string
+	wfRunProjectFlag  string
+	wfRunBranchFlag   string
+	wfRunCommitFlag   string
+	wfRunPipelineFlag string
 )
 
 var workflowRunCmd = &cobra.Command{
 	Use:   "run",
-	Short: "Trigger a new workflow run",
+	Short: "Trigger a new workflow run for a project on a branch",
+	Long: `Create and trigger a brand-new workflow run.
+
+This POSTs to the Semaphore workflows API to schedule a fresh workflow for a
+project on a given branch/reference — the same thing a git push does. It is
+NOT the same as "workflow rerun", which only reschedules an EXISTING workflow
+by its ID, and therefore cannot produce the first run for a project that has
+none yet.
+
+When run inside a checked-out repository the branch defaults to the current
+git branch and the commit to the current HEAD. Requires the caller to hold the
+project.job.rerun permission. Note: the public API masks an RBAC denial as
+HTTP 404 "Not Found" (not 403), so a 404 here can mean either the project does
+not exist OR the token's user lacks project.job.rerun.`,
 	Example: `  sem-ai workflow run --project my-project
-  sem-ai workflow run --project my-project --branch feature-x`,
+  sem-ai workflow run --project my-project --branch feature-x
+  sem-ai workflow run --project my-project --branch main --commit <sha>`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		if !config.IsConfigured() {
 			return fmt.Errorf("not configured; run 'sem-ai connect' first")
@@ -338,48 +355,55 @@ var workflowRunCmd = &cobra.Command{
 			return err
 		}
 
-		// Rerun the latest workflow for this project/branch
-		branch := wfRunBranchFlag
-		params := url.Values{}
-		params.Set("project_id", projectID)
-		if branch != "" {
-			params.Set("branch_name", branch)
+		reference := wfRunBranchFlag
+		if reference == "" {
+			if b, berr := gitutil.CurrentBranch(); berr == nil {
+				reference = b
+			}
+		}
+		if reference == "" {
+			err := fmt.Errorf("no branch given and none detected from git; pass --branch")
+			output.Error("branch_error", err.Error(), 1)
+			return err
+		}
+
+		commit := wfRunCommitFlag
+		if commit == "" {
+			if sha, serr := gitutil.CurrentCommitSHA(); serr == nil {
+				commit = sha
+			}
+		}
+
+		payload := map[string]string{
+			"project_id": projectID,
+			"reference":  reference,
+		}
+		if commit != "" {
+			payload["commit_sha"] = commit
+		}
+		if wfRunPipelineFlag != "" {
+			payload["pipeline_file"] = wfRunPipelineFlag
+		}
+		body, err := json.Marshal(payload)
+		if err != nil {
+			output.Error("encode_error", err.Error(), 1)
+			return err
 		}
 
 		c := client.New()
-		resp, err := c.ListWithParams("plumber-workflows", params)
+		resp, err := c.Post("plumber-workflows", body)
 		if err != nil {
 			output.Error("api_error", err.Error(), 1)
 			return err
 		}
-
-		var workflows []struct {
-			WfID string `json:"wf_id"`
-		}
-		if resp.StatusCode == 200 {
-			_ = json.Unmarshal(resp.Body, &workflows)
+		if resp.StatusCode != 200 && resp.StatusCode != 201 {
+			output.Error("api_error", fmt.Sprintf("HTTP %d: %s", resp.StatusCode, string(resp.Body)), resp.StatusCode)
+			return fmt.Errorf("API returned %d", resp.StatusCode)
 		}
 
-		if len(workflows) == 0 {
-			output.Error("not_found", "no workflows found to rerun", 404)
-			return fmt.Errorf("no workflows found")
-		}
-
-		// Rerun latest
-		token := client.NewRequestToken()
-		action := fmt.Sprintf("reschedule?request_token=%s", token)
-		rerunResp, err := c.PostAction("plumber-workflows", workflows[0].WfID, action, nil)
-		if err != nil {
-			output.Error("api_error", err.Error(), 1)
-			return err
-		}
-		if rerunResp.StatusCode != 200 {
-			output.Error("api_error", fmt.Sprintf("HTTP %d: %s", rerunResp.StatusCode, string(rerunResp.Body)), rerunResp.StatusCode)
-			return fmt.Errorf("API returned %d", rerunResp.StatusCode)
-		}
 		var result any
-		if err := json.Unmarshal(rerunResp.Body, &result); err != nil {
-			output.Result(map[string]string{"status": "triggered", "rerun_of": workflows[0].WfID})
+		if err := json.Unmarshal(resp.Body, &result); err != nil {
+			output.Result(map[string]string{"status": "triggered", "project_id": projectID, "reference": reference})
 			return nil
 		}
 		output.Result(result)
@@ -394,7 +418,9 @@ func init() {
 	workflowListCmd.Flags().IntVar(&wfLimitFlag, "limit", 30, "max number of workflows to return (0 = server default)")
 	workflowListCmd.Flags().BoolVar(&wfFullFlag, "full", false, "return the raw API payload across all pages instead of trimmed summaries (drops the default --days/--limit window unless set explicitly)")
 	workflowRunCmd.Flags().StringVar(&wfRunProjectFlag, "project", "", "project name or ID (auto-detected from git remote if omitted)")
-	workflowRunCmd.Flags().StringVar(&wfRunBranchFlag, "branch", "", "branch to run workflow on")
+	workflowRunCmd.Flags().StringVar(&wfRunBranchFlag, "branch", "", "branch/reference to run on (defaults to current git branch)")
+	workflowRunCmd.Flags().StringVar(&wfRunCommitFlag, "commit", "", "commit SHA to run (defaults to current git HEAD)")
+	workflowRunCmd.Flags().StringVar(&wfRunPipelineFlag, "pipeline-file", "", "pipeline YAML path (server default: .semaphore/semaphore.yml)")
 	workflowCmd.AddCommand(workflowListCmd)
 	workflowCmd.AddCommand(workflowShowCmd)
 	workflowCmd.AddCommand(workflowRerunCmd)
