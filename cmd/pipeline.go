@@ -5,11 +5,13 @@ import (
 	"fmt"
 	"net/url"
 	"strings"
+	"time"
 
 	"github.com/semaphoreio/sem-ai/pkg/client"
 	"github.com/semaphoreio/sem-ai/pkg/config"
 	"github.com/semaphoreio/sem-ai/pkg/output"
 	"github.com/spf13/cobra"
+	"github.com/spf13/pflag"
 )
 
 var pipelineCmd = &cobra.Command{
@@ -151,15 +153,151 @@ var pipelineShowCmd = &cobra.Command{
 	},
 }
 
-var pipelineListProjectFlag string
+var (
+	pipelineListProjectFlag string
+	pipelineListBranchFlag  string
+	pipelineListDaysFlag    int
+	pipelineListLimitFlag   int
+	pipelineListFullFlag    bool
+)
+
+type pipelineSummary struct {
+	ID            string `json:"id"`
+	WorkflowID    string `json:"workflow_id"`
+	Name          string `json:"name"`
+	State         string `json:"state"`
+	Result        string `json:"result,omitempty"`
+	ResultReason  string `json:"result_reason,omitempty"`
+	Branch        string `json:"branch"`
+	CommitSHA     string `json:"commit_sha"`
+	CommitMessage string `json:"commit_message"`
+	YAMLFile      string `json:"yaml_file"`
+	CreatedAt     string `json:"created_at,omitempty"`
+	DoneAt        string `json:"done_at,omitempty"`
+	Error         string `json:"error,omitempty"`
+}
+
+func protoTimeString(seconds int64) string {
+	if seconds == 0 {
+		return ""
+	}
+	return time.Unix(seconds, 0).UTC().Format(time.RFC3339)
+}
+
+func firstLine(s string) string {
+	if i := strings.IndexByte(s, '\n'); i >= 0 {
+		s = s[:i]
+	}
+	return strings.TrimSpace(s)
+}
+
+func summarizePipelines(items []json.RawMessage) []pipelineSummary {
+	summaries := make([]pipelineSummary, 0, len(items))
+	for _, raw := range items {
+		var p struct {
+			PplID         string `json:"ppl_id"`
+			WfID          string `json:"wf_id"`
+			Name          string `json:"name"`
+			State         string `json:"state"`
+			Result        string `json:"result"`
+			ResultReason  string `json:"result_reason"`
+			BranchName    string `json:"branch_name"`
+			CommitSHA     string `json:"commit_sha"`
+			CommitMessage string `json:"commit_message"`
+			YAMLFile      string `json:"yaml_file_name"`
+			Error         string `json:"error_description"`
+			CreatedAt     struct {
+				Seconds int64 `json:"seconds"`
+			} `json:"created_at"`
+			DoneAt struct {
+				Seconds int64 `json:"seconds"`
+			} `json:"done_at"`
+		}
+		if err := json.Unmarshal(raw, &p); err != nil {
+			continue
+		}
+		summaries = append(summaries, pipelineSummary{
+			ID:            p.PplID,
+			WorkflowID:    p.WfID,
+			Name:          p.Name,
+			State:         strings.ToLower(p.State),
+			Result:        strings.ToLower(p.Result),
+			ResultReason:  strings.ToLower(p.ResultReason),
+			Branch:        p.BranchName,
+			CommitSHA:     p.CommitSHA,
+			CommitMessage: firstLine(p.CommitMessage),
+			YAMLFile:      p.YAMLFile,
+			CreatedAt:     protoTimeString(p.CreatedAt.Seconds),
+			DoneAt:        protoTimeString(p.DoneAt.Seconds),
+			Error:         p.Error,
+		})
+	}
+	return summaries
+}
+
+func validateListWindow(days, limit int) error {
+	if days < 0 {
+		return fmt.Errorf("--days must be >= 0 (0 = no time filter)")
+	}
+	if limit < 0 {
+		return fmt.Errorf("--limit must be >= 0 (0 = server default)")
+	}
+	return nil
+}
+
+func listAllCapped(c *client.Client, kind string, params url.Values, limit int) ([]json.RawMessage, error) {
+	if limit <= 0 {
+		return c.ListAll(kind, params)
+	}
+	total := 0
+	items, err := c.ListAll(kind, params, func(page []json.RawMessage) bool {
+		total += len(page)
+		return total >= limit
+	})
+	if err != nil {
+		return nil, err
+	}
+	if len(items) > limit {
+		items = items[:limit]
+	}
+	return items, nil
+}
+
+func listWindowValues(flags *pflag.FlagSet, days, limit int, full bool) (int, int) {
+	if !full {
+		return days, limit
+	}
+	if !flags.Changed("days") {
+		days = 0
+	}
+	if !flags.Changed("limit") {
+		limit = 0
+	}
+	return days, limit
+}
+
+func listWindowParams(params url.Values, days, limit int, now time.Time) url.Values {
+	if days > 0 {
+		params.Set("created_after", fmt.Sprintf("%d", now.AddDate(0, 0, -days).Unix()))
+	}
+	if limit > 0 {
+		params.Set("page_size", fmt.Sprintf("%d", limit))
+	}
+	return params
+}
 
 var pipelineListCmd = &cobra.Command{
 	Use:   "list",
-	Short: "List pipelines for a project",
-	Example: `  sem-ai pipeline list --project my-project`,
+	Short: "List pipelines for a project (trimmed summaries; --full for raw payload)",
+	Example: `  sem-ai pipeline list --project my-project
+  sem-ai pipeline list --project my-project --branch main --days 7
+  sem-ai pipeline list --project my-project --limit 10 --full`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		if !config.IsConfigured() {
 			return fmt.Errorf("not configured; run 'sem-ai connect' first")
+		}
+		if err := validateListWindow(pipelineListDaysFlag, pipelineListLimitFlag); err != nil {
+			return err
 		}
 		projectID, err := resolveProjectID(pipelineListProjectFlag)
 		if err != nil {
@@ -169,6 +307,20 @@ var pipelineListCmd = &cobra.Command{
 		c := client.New()
 		params := url.Values{}
 		params.Set("project_id", projectID)
+		if pipelineListBranchFlag != "" {
+			params.Set("branch_name", pipelineListBranchFlag)
+		}
+		days, limit := listWindowValues(cmd.Flags(), pipelineListDaysFlag, pipelineListLimitFlag, pipelineListFullFlag)
+		listWindowParams(params, days, limit, time.Now())
+		if pipelineListFullFlag {
+			items, err := listAllCapped(c, "pipelines", params, limit)
+			if err != nil {
+				output.Error("api_error", err.Error(), 1)
+				return err
+			}
+			output.Result(items)
+			return nil
+		}
 		resp, err := c.ListWithParams("pipelines", params)
 		if err != nil {
 			output.Error("api_error", err.Error(), 1)
@@ -178,9 +330,16 @@ var pipelineListCmd = &cobra.Command{
 			output.Error("api_error", fmt.Sprintf("HTTP %d: %s", resp.StatusCode, string(resp.Body)), resp.StatusCode)
 			return fmt.Errorf("API returned %d", resp.StatusCode)
 		}
-		var result any
-		json.Unmarshal(resp.Body, &result)
-		output.Result(result)
+		var items []json.RawMessage
+		if err := json.Unmarshal(resp.Body, &items); err != nil {
+			output.Error("parse_error", err.Error(), 1)
+			return err
+		}
+		summaries := summarizePipelines(items)
+		if skipped := len(items) - len(summaries); skipped > 0 {
+			output.Warn(fmt.Sprintf("skipped %d unparseable items", skipped))
+		}
+		output.Result(summaries)
 		return nil
 	},
 }
@@ -365,6 +524,10 @@ func init() {
 	pipelinePromoteCmd.Flags().StringArrayVar(&promoteParamsFlag, "param", nil, "promotion parameters as key=value pairs")
 
 	pipelineListCmd.Flags().StringVar(&pipelineListProjectFlag, "project", "", "project name or ID (auto-detected from git remote if omitted)")
+	pipelineListCmd.Flags().StringVar(&pipelineListBranchFlag, "branch", "", "filter by branch name")
+	pipelineListCmd.Flags().IntVar(&pipelineListDaysFlag, "days", 30, "only pipelines created in the last N days (0 = no time filter)")
+	pipelineListCmd.Flags().IntVar(&pipelineListLimitFlag, "limit", 30, "max number of pipelines to return (0 = server default)")
+	pipelineListCmd.Flags().BoolVar(&pipelineListFullFlag, "full", false, "return the raw API payload across all pages instead of trimmed summaries (drops the default --days/--limit window unless set explicitly)")
 	pipelineCmd.AddCommand(pipelineListCmd)
 	pipelineCmd.AddCommand(pipelineShowCmd)
 	pipelineCmd.AddCommand(pipelineStopCmd)

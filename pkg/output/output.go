@@ -27,7 +27,7 @@ var (
 func SetFormat(f string) {
 	f = strings.ToLower(f)
 	switch f {
-	case "json", "table", "yaml":
+	case "json", "table", "yaml", "compact":
 		format = f
 	default:
 		format = "json"
@@ -65,6 +65,13 @@ func Result(data any) {
 		fmt.Fprint(stdout, string(b))
 	case "table":
 		printTable(data)
+	case "compact":
+		b, err := json.Marshal(data)
+		if err != nil {
+			Error("format_error", err.Error(), 1)
+			return
+		}
+		fmt.Fprintln(stdout, string(b))
 	default:
 		b, err := json.MarshalIndent(data, "", "  ")
 		if err != nil {
@@ -84,7 +91,12 @@ func Error(code string, message string, status int) {
 		"message": message,
 		"status":  status,
 	}
-	b, _ := json.MarshalIndent(e, "", "  ")
+	var b []byte
+	if format == "compact" {
+		b, _ = json.Marshal(e)
+	} else {
+		b, _ = json.MarshalIndent(e, "", "  ")
+	}
 	fmt.Fprintln(stderr, string(b))
 	reported = true
 }
