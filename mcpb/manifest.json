@@ -2,7 +2,7 @@
   "manifest_version": "0.3",
   "name": "sem-ai",
   "display_name": "Semaphore CI",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "Agent-first Semaphore CI/CD — manage pipelines, tests, deploys, flaky detection.",
   "long_description": "sem-ai exposes the full Semaphore CI/CD loop as MCP tools: inspect pipelines and workflows, read job logs, surface flaky tests and insights, manage secrets and notifications, trigger deploys, and validate YAML. Connect with your organization host and a Semaphore API token.",
   "author": {
