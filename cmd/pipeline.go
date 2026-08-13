@@ -11,6 +11,7 @@ import (
 	"github.com/semaphoreio/sem-ai/pkg/config"
 	"github.com/semaphoreio/sem-ai/pkg/output"
 	"github.com/spf13/cobra"
+	"github.com/spf13/pflag"
 )
 
 var pipelineCmd = &cobra.Command{
@@ -234,6 +235,19 @@ func summarizePipelines(items []json.RawMessage) []pipelineSummary {
 	return summaries
 }
 
+func listWindowValues(flags *pflag.FlagSet, days, limit int, full bool) (int, int) {
+	if !full {
+		return days, limit
+	}
+	if !flags.Changed("days") {
+		days = 0
+	}
+	if !flags.Changed("limit") {
+		limit = 0
+	}
+	return days, limit
+}
+
 func listWindowParams(params url.Values, days, limit int, now time.Time) url.Values {
 	if days > 0 {
 		params.Set("created_after", fmt.Sprintf("%d", now.AddDate(0, 0, -days).Unix()))
@@ -265,7 +279,8 @@ var pipelineListCmd = &cobra.Command{
 		if pipelineListBranchFlag != "" {
 			params.Set("branch_name", pipelineListBranchFlag)
 		}
-		listWindowParams(params, pipelineListDaysFlag, pipelineListLimitFlag, time.Now())
+		days, limit := listWindowValues(cmd.Flags(), pipelineListDaysFlag, pipelineListLimitFlag, pipelineListFullFlag)
+		listWindowParams(params, days, limit, time.Now())
 		resp, err := c.ListWithParams("pipelines", params)
 		if err != nil {
 			output.Error("api_error", err.Error(), 1)
@@ -474,7 +489,7 @@ func init() {
 	pipelineListCmd.Flags().StringVar(&pipelineListBranchFlag, "branch", "", "filter by branch name")
 	pipelineListCmd.Flags().IntVar(&pipelineListDaysFlag, "days", 30, "only pipelines created in the last N days (0 = no time filter)")
 	pipelineListCmd.Flags().IntVar(&pipelineListLimitFlag, "limit", 30, "max number of pipelines to return (0 = server default)")
-	pipelineListCmd.Flags().BoolVar(&pipelineListFullFlag, "full", false, "return the full raw API payload instead of trimmed summaries")
+	pipelineListCmd.Flags().BoolVar(&pipelineListFullFlag, "full", false, "return the full raw API payload instead of trimmed summaries (drops the default --days/--limit window unless set explicitly)")
 	pipelineCmd.AddCommand(pipelineListCmd)
 	pipelineCmd.AddCommand(pipelineShowCmd)
 	pipelineCmd.AddCommand(pipelineStopCmd)

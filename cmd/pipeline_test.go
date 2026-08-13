@@ -5,6 +5,8 @@ import (
 	"net/url"
 	"testing"
 	"time"
+
+	"github.com/spf13/pflag"
 )
 
 func TestSummarizePipelines(t *testing.T) {
@@ -120,6 +122,39 @@ func TestListWindowParams(t *testing.T) {
 	v = listWindowParams(url.Values{}, 0, 0, now)
 	if v.Has("created_after") || v.Has("page_size") {
 		t.Errorf("days=0/limit=0 must not set filters, got %v", v)
+	}
+}
+
+func TestListWindowValues(t *testing.T) {
+	newFlags := func(args ...string) *pflag.FlagSet {
+		fs := pflag.NewFlagSet("list", pflag.ContinueOnError)
+		fs.Int("days", 30, "")
+		fs.Int("limit", 30, "")
+		fs.Bool("full", false, "")
+		if err := fs.Parse(args); err != nil {
+			t.Fatal(err)
+		}
+		return fs
+	}
+
+	days, limit := listWindowValues(newFlags("--full"), 30, 30, true)
+	if days != 0 || limit != 0 {
+		t.Errorf("--full with default flags must drop the window, got days=%d limit=%d", days, limit)
+	}
+
+	days, limit = listWindowValues(newFlags("--full", "--days", "7"), 7, 30, true)
+	if days != 7 || limit != 0 {
+		t.Errorf("--full --days 7 must keep the explicit window, got days=%d limit=%d", days, limit)
+	}
+
+	days, limit = listWindowValues(newFlags("--full", "--limit", "10"), 30, 10, true)
+	if days != 0 || limit != 10 {
+		t.Errorf("--full --limit 10 must keep the explicit cap, got days=%d limit=%d", days, limit)
+	}
+
+	days, limit = listWindowValues(newFlags(), 30, 30, false)
+	if days != 30 || limit != 30 {
+		t.Errorf("without --full the defaults must pass through, got days=%d limit=%d", days, limit)
 	}
 }
 

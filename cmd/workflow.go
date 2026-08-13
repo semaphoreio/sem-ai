@@ -80,7 +80,8 @@ var workflowListCmd = &cobra.Command{
 		if wfBranchFlag != "" {
 			params.Set("branch_name", wfBranchFlag)
 		}
-		listWindowParams(params, wfDaysFlag, wfLimitFlag, time.Now())
+		days, limit := listWindowValues(cmd.Flags(), wfDaysFlag, wfLimitFlag, wfFullFlag)
+		listWindowParams(params, days, limit, time.Now())
 
 		c := client.New()
 		resp, err := c.ListWithParams("plumber-workflows", params)
@@ -382,7 +383,7 @@ func init() {
 	workflowListCmd.Flags().StringVar(&wfBranchFlag, "branch", "", "filter by branch name")
 	workflowListCmd.Flags().IntVar(&wfDaysFlag, "days", 30, "only workflows created in the last N days (0 = no time filter)")
 	workflowListCmd.Flags().IntVar(&wfLimitFlag, "limit", 30, "max number of workflows to return (0 = server default)")
-	workflowListCmd.Flags().BoolVar(&wfFullFlag, "full", false, "return the full raw API payload instead of trimmed summaries")
+	workflowListCmd.Flags().BoolVar(&wfFullFlag, "full", false, "return the full raw API payload instead of trimmed summaries (drops the default --days/--limit window unless set explicitly)")
 	workflowRunCmd.Flags().StringVar(&wfRunProjectFlag, "project", "", "project name or ID (auto-detected from git remote if omitted)")
 	workflowRunCmd.Flags().StringVar(&wfRunBranchFlag, "branch", "", "branch to run workflow on")
 	workflowCmd.AddCommand(workflowListCmd)
