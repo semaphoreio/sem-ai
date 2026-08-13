@@ -40,11 +40,11 @@ Requires Go 1.25+.
 
 sem-ai ships its skill bundle as a Claude Code / Codex plugin.
 
-**Claude Code** — from inside the host, install with two slash commands:
+**Claude Code** — install from the shell:
 
-```
-/plugin marketplace add semaphoreio/sem-ai
-/plugin install sem-ai@semaphoreio
+```sh
+claude plugin marketplace add semaphoreio/sem-ai
+claude plugin install sem-ai@semaphoreio
 ```
 
 **Codex CLI** — install from the shell:
@@ -58,12 +58,12 @@ The plugin drops every sem-ai skill (debug-pipeline, deploy, fix-flaky, gha-to-s
 
 Claude Code refreshes registered marketplaces at session start, picks up the new plugin version, and applies it automatically — there is no manifest flag to set for this. To force an immediate refresh:
 
-```
-/plugin marketplace update semaphoreio
-/reload-plugins
+```sh
+claude plugin marketplace update semaphoreio
+claude plugin update sem-ai@semaphoreio    # restart running sessions to apply
 ```
 
-(Note: there is no `/plugin update <plugin>@<marketplace>` command — refresh the marketplace and let auto-update apply, or `uninstall` + `install` for a forced re-install.)
+Codex equivalent: `codex plugin marketplace upgrade semaphoreio`.
 
 Skills follow the [Agent Skills](https://agentskills.io) standard and give agents context on when and how to use each sem-ai command without reading documentation.
 
@@ -175,7 +175,7 @@ All commands become native MCP tools (`project_list`, `diagnose`, `status`, `bla
 
 | Command | Description |
 |---------|-------------|
-| `workflow list --project <p>` | List workflows |
+| `workflow list --project <p> [--branch <b>] [--days <n>] [--limit <n>] [--full]` | List workflows (trimmed summaries, last 30 days by default; `--full` for the raw payload over the full history) |
 | `workflow show <id>` | Show workflow details |
 | `workflow run --project <p>` | Rerun the latest workflow |
 | `workflow rerun <id>` | Rerun a workflow |
@@ -186,7 +186,7 @@ All commands become native MCP tools (`project_list`, `diagnose`, `status`, `bla
 | Command | Description |
 |---------|-------------|
 | `pipeline show <id>` | Show pipeline with blocks and jobs |
-| `pipeline list --project <p>` | List pipelines |
+| `pipeline list --project <p> [--branch <b>] [--days <n>] [--limit <n>] [--full]` | List pipelines (trimmed summaries, last 30 days by default; `--full` for the raw payload over the full history) |
 | `pipeline stop <id>` | Stop a pipeline |
 | `pipeline rebuild <id>` | Trigger partial rebuild (API call only) |
 | `pipeline promote <id>` | Trigger a promotion (deploy) |

@@ -252,3 +252,47 @@ func TestSetFormatValidFormats(t *testing.T) {
 		}
 	}
 }
+
+func TestErrorCompactFormat(t *testing.T) {
+	var errb bytes.Buffer
+	SetWriters(nil, &errb)
+	defer SetWriters(nil, nil)
+
+	SetFormat("compact")
+	defer SetFormat("json")
+	Error("test_code", "boom", 3)
+
+	got := strings.TrimSuffix(errb.String(), "\n")
+	if strings.Contains(got, "\n") || strings.Contains(got, "  ") {
+		t.Errorf("compact error must be a single unindented line, got: %q", got)
+	}
+	var parsed map[string]any
+	if err := json.Unmarshal([]byte(got), &parsed); err != nil {
+		t.Fatalf("compact error is not valid JSON: %v", err)
+	}
+	if parsed["code"] != "test_code" {
+		t.Errorf("code: got %v", parsed["code"])
+	}
+}
+
+func TestResultCompactFormat(t *testing.T) {
+	var buf bytes.Buffer
+	SetWriters(&buf, nil)
+	defer SetWriters(nil, nil)
+
+	SetFormat("compact")
+	defer SetFormat("json")
+	Result([]map[string]string{{"key": "value"}, {"key": "other"}})
+
+	got := strings.TrimSuffix(buf.String(), "\n")
+	if strings.Contains(got, "\n") || strings.Contains(got, "  ") {
+		t.Errorf("compact output must be a single unindented line, got: %q", got)
+	}
+	var parsed []map[string]string
+	if err := json.Unmarshal([]byte(got), &parsed); err != nil {
+		t.Fatalf("compact output is not valid JSON: %v", err)
+	}
+	if len(parsed) != 2 || parsed[0]["key"] != "value" {
+		t.Errorf("unexpected parsed content: %+v", parsed)
+	}
+}

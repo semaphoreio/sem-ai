@@ -921,3 +921,123 @@ func TestParseJUnitJSONMultipleSuites(t *testing.T) {
 		t.Errorf("Skipped = %d, want 1", got.Skipped)
 	}
 }
+
+// ---- ParseJUnitXML --------------------------------------------------------------
+
+func TestParseJUnitXMLWrappedTestsuites(t *testing.T) {
+	data := []byte(`<?xml version="1.0" encoding="UTF-8"?>
+<testsuites>
+  <testsuite name="pkg/foo" tests="3" failures="1" errors="0" skipped="1">
+    <testcase name="TestA" classname="pkg/foo" file="foo_test.go" time="0.01"/>
+    <testcase name="TestB" classname="pkg/foo" file="foo_test.go" time="0.02">
+      <failure message="expected 1, got 2">assertion failed at foo_test.go:10</failure>
+    </testcase>
+    <testcase name="TestC" classname="pkg/foo" time="0.00">
+      <skipped/>
+    </testcase>
+  </testsuite>
+</testsuites>`)
+
+	got := ParseJUnitXML(data)
+	if got == nil {
+		t.Fatal("expected non-nil result")
+	}
+	if got.Framework != "junit" {
+		t.Errorf("Framework = %q, want junit", got.Framework)
+	}
+	if got.Total != 3 {
+		t.Errorf("Total = %d, want 3", got.Total)
+	}
+	if got.Passed != 1 {
+		t.Errorf("Passed = %d, want 1", got.Passed)
+	}
+	if got.Failed != 1 {
+		t.Errorf("Failed = %d, want 1", got.Failed)
+	}
+	if got.Skipped != 1 {
+		t.Errorf("Skipped = %d, want 1", got.Skipped)
+	}
+
+	byName := map[string]TestResult{}
+	for _, tr := range got.Tests {
+		byName[tr.Name] = tr
+	}
+	if byName["TestA"].Status != "passed" {
+		t.Errorf("TestA status = %q, want passed", byName["TestA"].Status)
+	}
+	if byName["TestB"].Status != "failed" || byName["TestB"].Message != "expected 1, got 2" {
+		t.Errorf("TestB = %+v, want failed/expected 1, got 2", byName["TestB"])
+	}
+	if byName["TestC"].Status != "skipped" {
+		t.Errorf("TestC status = %q, want skipped", byName["TestC"].Status)
+	}
+}
+
+func TestParseJUnitXMLBareTestsuite(t *testing.T) {
+	// Some frameworks emit a single <testsuite> with no <testsuites> wrapper.
+	data := []byte(`<testsuite name="unit" tests="2" failures="0" errors="1" skipped="0">
+  <testcase name="TestX" classname="unit">
+    <error message="boom">panic: boom</error>
+  </testcase>
+  <testcase name="TestY" classname="unit"/>
+</testsuite>`)
+
+	got := ParseJUnitXML(data)
+	if got == nil {
+		t.Fatal("expected non-nil result")
+	}
+	if got.Total != 2 {
+		t.Errorf("Total = %d, want 2", got.Total)
+	}
+	if got.Failed != 1 {
+		t.Errorf("Failed = %d, want 1", got.Failed)
+	}
+	if got.Passed != 1 {
+		t.Errorf("Passed = %d, want 1", got.Passed)
+	}
+
+	byName := map[string]TestResult{}
+	for _, tr := range got.Tests {
+		byName[tr.Name] = tr
+	}
+	if byName["TestX"].Status != "failed" || byName["TestX"].Message != "boom" {
+		t.Errorf("TestX = %+v, want failed/boom", byName["TestX"])
+	}
+}
+
+func TestParseJUnitXMLFailureBodyFallback(t *testing.T) {
+	// No message attribute — fall back to the element body text.
+	data := []byte(`<testsuite name="unit" tests="1">
+  <testcase name="TestZ" classname="unit">
+    <failure>stack trace goes here</failure>
+  </testcase>
+</testsuite>`)
+
+	got := ParseJUnitXML(data)
+	if got == nil {
+		t.Fatal("expected non-nil result")
+	}
+	if len(got.Tests) != 1 || got.Tests[0].Message != "stack trace goes here" {
+		t.Errorf("got %+v, want message body fallback", got.Tests)
+	}
+}
+
+func TestParseJUnitXMLInvalidData(t *testing.T) {
+	tests := []struct {
+		name string
+		data string
+	}{
+		{"not xml at all", "not valid xml at all"},
+		{"empty string", ""},
+		{"unrelated well-formed xml", `<html><body>404 not found</body></html>`},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got := ParseJUnitXML([]byte(tc.data))
+			if got != nil {
+				t.Errorf("ParseJUnitXML(%q) = %+v, want nil", tc.data, got)
+			}
+		})
+	}
+}

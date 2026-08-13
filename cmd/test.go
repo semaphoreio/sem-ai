@@ -25,9 +25,14 @@ var testPipelineFlag string
 
 var testReportCmd = &cobra.Command{
 	Use:   "report",
-	Short: "Fetch test results for a pipeline by parsing job logs",
-	Long: `Analyzes job logs in a pipeline to extract test results.
-Supports Go (gotestsum), pytest, rspec, and jest output formats.
+	Short: "Fetch test results for a pipeline",
+	Long: `Fetches structured test results for a pipeline, trying progressively
+weaker sources: the unified pipeline-level report (published by
+'test-results gen-pipeline-report' at workflow scope), then per-job
+'test-results publish' artifacts (JUnit JSON, then JUnit XML), and finally
+falling back to parsing raw job logs.
+Log-parsing fallback supports Go (gotestsum), pytest, rspec, jest, ExUnit,
+and minitest output formats.
 Returns structured test data: pass/fail counts, individual failures with file/line.`,
 	Example: `  sem-ai test report --pipeline abc123-def456
   sem-ai test report --pipeline abc123-def456 --format table`,
@@ -70,7 +75,13 @@ var testSummaryPipelineFlag string
 var testSummaryCmd = &cobra.Command{
 	Use:   "summary",
 	Short: "AI-friendly test summary for a pipeline",
-	Long:  "Compact digest: total/passed/failed/skipped counts, failure details, affected files.",
+	Long: `Compact digest: total/passed/failed/skipped counts, failure details, affected files.
+
+Sourced from the unified pipeline-level report (published by
+'test-results gen-pipeline-report' at workflow scope) when available,
+falling back to per-job 'test-results publish' artifacts (JUnit JSON, then
+JUnit XML), and finally to parsing raw job logs (Go/gotestsum, pytest,
+rspec, jest, ExUnit, minitest).`,
 	Example: `  sem-ai test summary --pipeline abc123-def456`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		if !config.IsConfigured() {
@@ -106,7 +117,7 @@ var testSummaryCmd = &cobra.Command{
 			totalFailed += r.Report.Failed
 			totalSkipped += r.Report.Skipped
 			for _, t := range r.Report.Tests {
-				if t.Status == "failed" {
+				if t.Status == "failed" || t.Status == "error" {
 					failures = append(failures, failure{
 						Job:     r.JobName,
 						Test:    t.Name,
@@ -224,12 +235,12 @@ pass-rate, labels) use 'sem-ai flaky list'.`,
 
 		// Find flaky tests (seen both passed and failed)
 		type flakyTest struct {
-			Name       string `json:"name"`
-			Package    string `json:"package,omitempty"`
-			PassCount  int    `json:"pass_count"`
-			FailCount  int    `json:"fail_count"`
-			Appearances int   `json:"appearances"`
-			FlakyRate  string `json:"flaky_rate"`
+			Name        string `json:"name"`
+			Package     string `json:"package,omitempty"`
+			PassCount   int    `json:"pass_count"`
+			FailCount   int    `json:"fail_count"`
+			Appearances int    `json:"appearances"`
+			FlakyRate   string `json:"flaky_rate"`
 		}
 
 		var flaky []flakyTest
@@ -269,15 +280,28 @@ pass-rate, labels) use 'sem-ai flaky list'.`,
 
 // jobReport pairs a job with its parsed test report.
 type jobReport struct {
-	JobID   string              `json:"job_id"`
-	JobName string              `json:"job_name"`
-	Status  string              `json:"job_status"`
-	Result  string              `json:"job_result"`
+	JobID   string                `json:"job_id"`
+	JobName string                `json:"job_name"`
+	Status  string                `json:"job_status"`
+	Result  string                `json:"job_result"`
 	Report  *testparse.TestReport `json:"test_report"`
 }
 
-// fetchTestReports gets pipeline blocks/jobs, tries artifact-based test results
-// first (JUnit JSON pushed by test-results CLI), falls back to log parsing.
+// fetchTestReports gets pipeline blocks/jobs and resolves each job's test
+// report through an explicit fallback chain, strongest source first:
+//
+//  1. The unified pipeline-level report published by
+//     `test-results gen-pipeline-report` (run in after_pipeline) at WORKFLOW
+//     scope. It aggregates every job's published JUnit data for the whole
+//     pipeline, so it's fetched once and sliced per job by job_id.
+//  2. Per-job JOB-scope artifacts pushed by `test-results publish`: JUnit
+//     JSON first, then raw JUnit XML (published alongside it, or by callers
+//     that skip the JSON).
+//  3. Parsing raw job logs, as a last resort.
+//
+// A source that 404s, is absent, or fails to parse is treated as "not
+// available" and the chain falls through to the next one — it never errors
+// the whole call, so one bad job doesn't take down the rest of the pipeline.
 func fetchTestReports(pipelineID string) ([]jobReport, error) {
 	c := client.New()
 
@@ -293,6 +317,9 @@ func fetchTestReports(pipelineID string) ([]jobReport, error) {
 	}
 
 	var pplData struct {
+		Pipeline struct {
+			WfID string `json:"wf_id"`
+		} `json:"pipeline"`
 		Blocks []struct {
 			Name string `json:"name"`
 			Jobs []struct {
@@ -307,6 +334,13 @@ func fetchTestReports(pipelineID string) ([]jobReport, error) {
 		return nil, err
 	}
 
+	// Strategy 1 (primary, whole-pipeline): the unified report. One fetch
+	// covers every job, so do it once up front rather than per job.
+	var wfReport *testparse.TestReport
+	if pplData.Pipeline.WfID != "" {
+		wfReport = fetchWorkflowTestResults(c, pplData.Pipeline.WfID, pipelineID)
+	}
+
 	var reports []jobReport
 
 	for _, block := range pplData.Blocks {
@@ -318,7 +352,20 @@ func fetchTestReports(pipelineID string) ([]jobReport, error) {
 				Result:  job.Result,
 			}
 
-			// Strategy 1: Try fetching test-results artifact (pushed by `test-results publish`)
+			// Strategy 1: slice this job's tests out of the unified report,
+			// matched by the job_id each test carries. If the unified report
+			// has nothing attributed to this job (e.g. it predates job-id
+			// tagging, or this job doesn't publish JUnit), fall through.
+			if wfReport != nil {
+				if report := sliceReportForJob(wfReport, job.JobID); report != nil {
+					report.Source = "workflow-artifact"
+					jr.Report = report
+					reports = append(reports, jr)
+					continue
+				}
+			}
+
+			// Strategy 2: per-job JOB-scope artifact (JUnit JSON, then XML)
 			if report := fetchArtifactTestResults(c, job.JobID); report != nil {
 				report.Source = "artifact"
 				jr.Report = report
@@ -326,7 +373,7 @@ func fetchTestReports(pipelineID string) ([]jobReport, error) {
 				continue
 			}
 
-			// Strategy 2: Parse test output from job logs
+			// Strategy 3: parse test output from job logs
 			if report := fetchLogTestResults(c, job.JobID); report != nil {
 				report.Source = "log"
 				jr.Report = report
@@ -339,13 +386,91 @@ func fetchTestReports(pipelineID string) ([]jobReport, error) {
 	return reports, nil
 }
 
-// fetchArtifactTestResults tries to get JUnit JSON from test-results artifacts.
+// sliceReportForJob extracts the subset of a merged/unified report's tests
+// attributed to a single job (matched via the job_id baked into each test at
+// publish time) and recomputes that subset's pass/fail/skip counts from
+// scratch — the unified report's top-level Summary is pipeline-wide, not
+// per-job. Returns nil when no test in the report is attributed to jobID, so
+// the caller can fall back to a per-job source instead of returning an
+// empty report for a job that may simply not be represented yet.
+func sliceReportForJob(report *testparse.TestReport, jobID string) *testparse.TestReport {
+	if report == nil || jobID == "" {
+		return nil
+	}
+
+	var tests []testparse.TestResult
+	for _, t := range report.Tests {
+		if t.JobID == jobID {
+			tests = append(tests, t)
+		}
+	}
+	if len(tests) == 0 {
+		return nil
+	}
+
+	out := &testparse.TestReport{
+		Framework: report.Framework,
+		Tests:     tests,
+	}
+	for _, t := range tests {
+		out.Total++
+		switch t.Status {
+		case "passed":
+			out.Passed++
+		case "failed", "error":
+			out.Failed++
+		case "skipped", "disabled":
+			out.Skipped++
+		}
+	}
+	return out
+}
+
+// fetchWorkflowTestResults tries the pipeline-level unified report published
+// by `test-results gen-pipeline-report` at WORKFLOW scope:
+// test-results/<pipeline_id>.json. It aggregates every job's published JUnit
+// data for the whole pipeline into one artifact (see gen-pipeline-report's
+// source: it pulls every per-job test-results/<pipeline_id>/<job_id>.json
+// under workflow scope and merges them). Returns nil if the artifact is
+// absent or fails to parse.
+func fetchWorkflowTestResults(c *client.Client, wfID, pipelineID string) *testparse.TestReport {
+	data := fetchArtifactBytes(c, "workflows", wfID, fmt.Sprintf("test-results/%s.json", pipelineID))
+	if data == nil {
+		return nil
+	}
+	return testparse.ParseJUnitJSON(data)
+}
+
+// fetchArtifactTestResults tries per-job JOB-scope test-results artifacts
+// pushed by `test-results publish`: JUnit JSON first (test-results/junit.json),
+// then the raw JUnit XML pushed alongside it (test-results/junit.xml) if the
+// JSON is absent or fails to parse.
 func fetchArtifactTestResults(c *client.Client, jobID string) *testparse.TestReport {
-	// test-results CLI pushes to: test-results/junit.json
+	if data := fetchArtifactBytes(c, "jobs", jobID, "test-results/junit.json"); data != nil {
+		if report := testparse.ParseJUnitJSON(data); report != nil {
+			return report
+		}
+	}
+
+	if data := fetchArtifactBytes(c, "jobs", jobID, "test-results/junit.xml"); data != nil {
+		if report := testparse.ParseJUnitXML(data); report != nil {
+			return report
+		}
+	}
+
+	return nil
+}
+
+// fetchArtifactBytes resolves a signed URL for scope/scopeID/path and
+// downloads it, transparently gunzipping if the payload is gzip-compressed
+// (test-results artifacts typically are). Returns nil on any failure — a
+// 404, a network error, a bad status — so callers can fall through to the
+// next strategy in the chain instead of erroring out.
+func fetchArtifactBytes(c *client.Client, scope, scopeID, path string) []byte {
 	p := url.Values{}
-	p.Set("scope", "jobs")
-	p.Set("scope_id", jobID)
-	p.Set("path", "test-results/junit.json")
+	p.Set("scope", scope)
+	p.Set("scope_id", scopeID)
+	p.Set("path", path)
 	p.Set("method", "GET")
 
 	resp, err := c.ListWithParams("artifacts/signed_url", p)
@@ -379,7 +504,7 @@ func fetchArtifactTestResults(c *client.Client, jobID string) *testparse.TestRep
 		}
 	}
 
-	return testparse.ParseJUnitJSON(data)
+	return data
 }
 
 // fetchLogTestResults parses test output from job logs.

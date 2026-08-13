@@ -72,10 +72,13 @@ if [ -x "$dest" ]; then
   if [ -n "$installed_ver_stripped" ] && [ "$installed_ver_stripped" = "$ver" ]; then
     say "sem-ai ${tag} is already the latest version"
     say ""
-    say "If you use Claude Code or Codex, refresh the marketplace so the new skills land next session:"
-    say "  /plugin marketplace update semaphoreio"
-    say "  /reload-plugins         # apply now, no restart"
-    say "(First time? Install with:  /plugin marketplace add semaphoreio/sem-ai && /plugin install sem-ai@semaphoreio )"
+    say "Claude Code — refresh the marketplace so the new skills land next session:"
+    say "  claude plugin marketplace update semaphoreio"
+    say "(First time? Install with:  claude plugin marketplace add semaphoreio/sem-ai && claude plugin install sem-ai@semaphoreio )"
+    say ""
+    say "Codex CLI — refresh from the shell:"
+    say "  codex plugin marketplace upgrade semaphoreio"
+    say "(First time? Install with:  codex plugin marketplace add semaphoreio/sem-ai && codex plugin add sem-ai@semaphoreio )"
     exit 0
   fi
 fi
@@ -113,11 +116,15 @@ if [ "$path_hint" = "1" ]; then
 fi
 say "installed sem-ai ${tag} to ${dest}"
 say ""
-say "If you use Claude Code or Codex, install (or refresh) the skill bundle:"
-say "  /plugin marketplace add semaphoreio/sem-ai     # first time only"
-say "  /plugin install sem-ai@semaphoreio             # first time"
-say "  /plugin marketplace update semaphoreio         # already installed — refresh catalog"
-say "  /reload-plugins                                # apply changes without restart"
+say "Claude Code — install (or refresh) the skill bundle from the shell:"
+say "  claude plugin marketplace add semaphoreio/sem-ai   # first time only"
+say "  claude plugin install sem-ai@semaphoreio           # first time"
+say "  claude plugin marketplace update semaphoreio       # already installed — refresh catalog"
+say ""
+say "Codex CLI — install (or refresh) from the shell:"
+say "  codex plugin marketplace add semaphoreio/sem-ai    # first time only"
+say "  codex plugin add sem-ai@semaphoreio                # first time"
+say "  codex plugin marketplace upgrade semaphoreio       # already installed — refresh catalog"
 say ""
 say "Then run /sem-ai:init in a repo to set up Semaphore CI/CD for it."
 say ""

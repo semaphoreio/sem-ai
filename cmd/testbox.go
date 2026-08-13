@@ -3,8 +3,10 @@ package cmd
 import (
 	"encoding/json"
 	"fmt"
+	"net/url"
 	"os"
 	"os/exec"
+	"strconv"
 	"time"
 
 	"github.com/semaphoreio/sem-ai/pkg/client"
@@ -12,6 +14,10 @@ import (
 	"github.com/semaphoreio/sem-ai/pkg/output"
 	"github.com/spf13/cobra"
 )
+
+// testboxJobName is the fixed debug-job name testbox uses for every warmup —
+// it's how `testbox list` tells testboxes apart from other running jobs.
+const testboxJobName = "sem-ai testbox"
 
 var testboxCmd = &cobra.Command{
 	Use:   "testbox",
@@ -63,7 +69,7 @@ var testboxWarmupCmd = &cobra.Command{
 		jobSpec := map[string]any{
 			"apiVersion": "v1alpha",
 			"kind":       "Job",
-			"metadata":   map[string]string{"name": "sem-ai testbox"},
+			"metadata":   map[string]string{"name": testboxJobName},
 			"spec": map[string]any{
 				"project_id": projectID,
 				"agent": map[string]any{
@@ -383,7 +389,11 @@ var testboxSSHCmd = &cobra.Command{
 	},
 }
 
-var testboxStopID string
+var (
+	testboxStopID           string
+	testboxStopTimeoutFlag  time.Duration
+	testboxStopPollInterval = 2 * time.Second // var, not const, so tests can shrink it
+)
 
 var testboxStopCmd = &cobra.Command{
 	Use:     "stop",
@@ -396,26 +406,277 @@ var testboxStopCmd = &cobra.Command{
 		}
 
 		c := client.New()
+
+		// If the box is already gone or already finished, don't bother
+		// issuing a stop — just report the current state cleanly.
+		if state, _, err := jobStateAndResult(c, testboxStopID); err == nil && state == "FINISHED" {
+			removeTestboxKeyFile(testboxStopID)
+			output.Result(map[string]string{
+				"status":     "already_stopped",
+				"testbox_id": testboxStopID,
+				"state":      state,
+			})
+			return nil
+		}
+
 		resp, err := c.Post(fmt.Sprintf("jobs/%s/stop", testboxStopID), nil)
 		if err != nil {
 			output.Error("api_error", err.Error(), 1)
 			return err
+		}
+		if resp.StatusCode == 404 {
+			// Job no longer exists server-side — nothing left to stop.
+			removeTestboxKeyFile(testboxStopID)
+			output.Result(map[string]string{
+				"status":     "not_found",
+				"testbox_id": testboxStopID,
+			})
+			return nil
 		}
 		if resp.StatusCode != 200 {
 			output.Error("api_error", fmt.Sprintf("HTTP %d: %s", resp.StatusCode, string(resp.Body)), resp.StatusCode)
 			return fmt.Errorf("API returned %d", resp.StatusCode)
 		}
 
-		// Clean up SSH key
-		keyFile := fmt.Sprintf("/tmp/.sem-testbox-%s.key", testboxStopID)
-		os.Remove(keyFile)
+		removeTestboxKeyFile(testboxStopID)
 
-		output.Result(map[string]string{
-			"status":     "stopped",
+		// The stop endpoint only acknowledges the request; the job itself
+		// stops asynchronously. Poll briefly to confirm it actually left
+		// RUNNING before reporting success, instead of taking the 200 on
+		// faith (that's what made the old "stopped" claim unreliable).
+		state, result := pollJobStopped(c, testboxStopID, testboxStopTimeoutFlag)
+
+		out := map[string]string{
 			"testbox_id": testboxStopID,
-		})
+			"state":      state,
+		}
+		if result != "" {
+			out["result"] = result
+		}
+		if state == "FINISHED" {
+			out["status"] = "stopped"
+		} else {
+			// Stop was accepted but not confirmed within the timeout — still
+			// truthful, not a false "stopped".
+			out["status"] = "stop_requested"
+			out["message"] = fmt.Sprintf("stop accepted but not confirmed within %s; check 'sem-ai job show %s'", testboxStopTimeoutFlag, testboxStopID)
+		}
+		output.Result(out)
 		return nil
 	},
+}
+
+// jobStateAndResult fetches a job's current status.state/status.result.
+func jobStateAndResult(c *client.Client, id string) (state, result string, err error) {
+	resp, err := c.Get("jobs", id)
+	if err != nil {
+		return "", "", err
+	}
+	if resp.StatusCode != 200 {
+		return "", "", fmt.Errorf("HTTP %d", resp.StatusCode)
+	}
+	var job struct {
+		Status struct {
+			State  string `json:"state"`
+			Result string `json:"result"`
+		} `json:"status"`
+	}
+	if err := json.Unmarshal(resp.Body, &job); err != nil {
+		return "", "", err
+	}
+	return job.Status.State, job.Status.Result, nil
+}
+
+// pollJobStopped polls a job until it reaches a terminal state (FINISHED) or
+// the timeout elapses, returning the last observed state/result. Bounded and
+// short by design — this confirms the stop landed, it doesn't wait out a
+// slow-draining job forever.
+func pollJobStopped(c *client.Client, id string, timeout time.Duration) (state, result string) {
+	if timeout <= 0 {
+		timeout = 15 * time.Second
+	}
+	deadline := time.Now().Add(timeout)
+	for {
+		s, r, err := jobStateAndResult(c, id)
+		if err == nil {
+			state, result = s, r
+			if state == "FINISHED" {
+				return state, result
+			}
+		}
+		if time.Now().After(deadline) {
+			return state, result
+		}
+		time.Sleep(testboxStopPollInterval)
+	}
+}
+
+func removeTestboxKeyFile(id string) {
+	os.Remove(fmt.Sprintf("/tmp/.sem-testbox-%s.key", id))
+}
+
+// testboxJobEntry decodes the fields of a job list entry that `testbox list`
+// surfaces: id/name/create_time from metadata, project + machine type from
+// spec, current state from status.
+type testboxJobEntry struct {
+	Metadata struct {
+		ID         string `json:"id"`
+		Name       string `json:"name"`
+		CreateTime string `json:"create_time"`
+	} `json:"metadata"`
+	Spec struct {
+		ProjectID string `json:"project_id"`
+		Agent     struct {
+			Machine struct {
+				Type string `json:"type"`
+			} `json:"machine"`
+		} `json:"agent"`
+	} `json:"spec"`
+	Status struct {
+		State string `json:"state"`
+	} `json:"status"`
+}
+
+// maxTestboxListPages bounds the next_page_token pagination loop as a safety
+// valve against a pathological/looping server response. 200 pages at up to
+// 30 jobs/page comfortably covers any real org's concurrent RUNNING jobs.
+const maxTestboxListPages = 200
+
+// fetchRunningJobs pages through GET /jobs?states=RUNNING to completion,
+// following the response body's next_page_token until the API stops
+// returning one. This is a DIFFERENT pagination convention than
+// client.ListAll (which follows the Link/x-has-more headers) — the jobs
+// endpoint caps page_size at 30 and embeds its cursor in the body, so a page-1-only
+// fetch would silently drop older testboxes on a busy org.
+func fetchRunningJobs(c *client.Client) ([]testboxJobEntry, error) {
+	var all []testboxJobEntry
+	pageToken := ""
+	for page := 0; page < maxTestboxListPages; page++ {
+		params := url.Values{}
+		params.Set("states", "RUNNING")
+		if pageToken != "" {
+			params.Set("page_token", pageToken)
+		}
+		resp, err := c.ListWithParams("jobs", params)
+		if err != nil {
+			return nil, err
+		}
+		if resp.StatusCode != 200 {
+			return nil, fmt.Errorf("HTTP %d: %s", resp.StatusCode, string(resp.Body))
+		}
+
+		var body struct {
+			Jobs          []testboxJobEntry `json:"jobs"`
+			NextPageToken string            `json:"next_page_token"`
+		}
+		if err := json.Unmarshal(resp.Body, &body); err != nil {
+			return nil, err
+		}
+		all = append(all, body.Jobs...)
+
+		if body.NextPageToken == "" {
+			break
+		}
+		pageToken = body.NextPageToken
+	}
+	return all, nil
+}
+
+var testboxListCmd = &cobra.Command{
+	Use:   "list",
+	Short: "List active testboxes",
+	Long: `Lists running testboxes. Active testboxes are Semaphore debug jobs in
+state RUNNING named "sem-ai testbox" (the fixed name every 'testbox warmup'
+uses) — this filters the running-jobs list down to just those, paging through
+the full RUNNING job list first so an older testbox never drops off page 1.`,
+	Example: `  sem-ai testbox list
+  sem-ai testbox list --format table`,
+	RunE: func(cmd *cobra.Command, args []string) error {
+		if !config.IsConfigured() {
+			return fmt.Errorf("not configured; run 'sem-ai connect' first")
+		}
+
+		c := client.New()
+
+		allJobs, err := fetchRunningJobs(c)
+		if err != nil {
+			output.Error("api_error", err.Error(), 1)
+			return err
+		}
+
+		matched := make([]testboxJobEntry, 0, len(allJobs))
+		for _, job := range allJobs {
+			if job.Metadata.Name == testboxJobName {
+				matched = append(matched, job)
+			}
+		}
+
+		projectNames := projectNamesByID(c, matched)
+
+		testboxes := make([]map[string]any, 0, len(matched))
+		for _, job := range matched {
+			project := job.Spec.ProjectID
+			if name, ok := projectNames[job.Spec.ProjectID]; ok && name != "" {
+				project = name
+			}
+			testboxes = append(testboxes, map[string]any{
+				"testbox_id": job.Metadata.ID,
+				"age":        jobAge(job.Metadata.CreateTime),
+				"machine":    job.Spec.Agent.Machine.Type,
+				"project":    project,
+			})
+		}
+
+		output.Result(map[string]any{"testboxes": testboxes})
+		return nil
+	},
+}
+
+// jobAge renders a job's create_time (a unix-seconds string, per the jobs
+// API) as a human duration like "5m32s". Empty/unparseable input returns "".
+// A future create_time (clock skew between client and server) would make
+// time.Since negative — Duration.String() would render that as "-5s", which
+// reads as nonsense for an "age" field, so it's clamped to "0s" instead.
+func jobAge(createTime string) string {
+	sec, err := strconv.ParseInt(createTime, 10, 64)
+	if err != nil || sec <= 0 {
+		return ""
+	}
+	d := time.Since(time.Unix(sec, 0))
+	if d < 0 {
+		return "0s"
+	}
+	return d.Round(time.Second).String()
+}
+
+// projectNamesByID resolves project_id -> project name for the given jobs
+// with a single "list all projects" call (not one lookup per job). Best
+// effort: a lookup failure just means callers fall back to showing the raw
+// project_id, never an error surfaced to the user for a cosmetic field.
+func projectNamesByID(c *client.Client, jobs []testboxJobEntry) map[string]string {
+	names := make(map[string]string)
+	if len(jobs) == 0 {
+		return names
+	}
+	resp, err := c.List("projects")
+	if err != nil || resp.StatusCode != 200 {
+		return names
+	}
+	var projects []struct {
+		Metadata struct {
+			ID   string `json:"id"`
+			Name string `json:"name"`
+		} `json:"metadata"`
+	}
+	if err := json.Unmarshal(resp.Body, &projects); err != nil {
+		return names
+	}
+	for _, p := range projects {
+		if p.Metadata.ID != "" {
+			names[p.Metadata.ID] = p.Metadata.Name
+		}
+	}
+	return names
 }
 
 func init() {
@@ -427,10 +688,12 @@ func init() {
 	testboxRunCmd.Flags().StringVar(&testboxRunID, "id", "", "testbox ID (from warmup)")
 	testboxSSHCmd.Flags().StringVar(&testboxSSHID, "id", "", "testbox ID")
 	testboxStopCmd.Flags().StringVar(&testboxStopID, "id", "", "testbox ID")
+	testboxStopCmd.Flags().DurationVar(&testboxStopTimeoutFlag, "timeout", 15*time.Second, "how long to wait for the job to confirm it stopped")
 
 	testboxCmd.AddCommand(testboxWarmupCmd)
 	testboxCmd.AddCommand(testboxRunCmd)
 	testboxCmd.AddCommand(testboxSSHCmd)
 	testboxCmd.AddCommand(testboxStopCmd)
+	testboxCmd.AddCommand(testboxListCmd)
 	rootCmd.AddCommand(testboxCmd)
 }

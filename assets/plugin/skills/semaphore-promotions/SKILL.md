@@ -168,6 +168,7 @@ Two non-obvious behaviors for the agent to remember:
 
 ## Boundaries
 
+- For ready-to-run command recipes — `pipeline promote`, `promote-and-wait`, deployment-target CRUD flags, target-bound secrets — use the `deploy` skill.
 - For pipeline structure (what blocks/tasks/jobs/agents are inside the CI pipeline OR the deploy pipeline), use the `semaphore-blocks` skill.
 - For the full YAML anatomy (version, name, agent, global_job_config, after_pipeline, all the moving parts), use the `semaphore-pipeline-yaml-anatomy` skill (forthcoming).
 - For *what* the deployed pipeline does (build artifacts, container push, terraform, etc.), that's your project's code — out of Semaphore's structural scope.

@@ -146,12 +146,13 @@ If no workflow ID is given, finds the latest workflow for the current project/br
 
 		// Find failed blocks and jobs
 		type failedJob struct {
-			Block      string                `json:"block"`
-			JobName    string                `json:"job_name"`
-			JobID      string                `json:"job_id"`
-			LogTail    string                `json:"log_tail,omitempty"`
-			Signal     *signals.Info         `json:"signal,omitempty"`
-			TestReport *testparse.TestReport `json:"test_report,omitempty"`
+			Block         string                `json:"block"`
+			JobName       string                `json:"job_name"`
+			JobID         string                `json:"job_id"`
+			LogTail       string                `json:"log_tail,omitempty"`
+			FailureReason string                `json:"failure_reason,omitempty"`
+			Signal        *signals.Info         `json:"signal,omitempty"`
+			TestReport    *testparse.TestReport `json:"test_report,omitempty"`
 		}
 
 		failedJobs := make([]failedJob, 0)
@@ -174,7 +175,13 @@ If no workflow ID is given, finds the latest workflow for the current project/br
 
 					// Fetch log tail for failed job
 					logResp, err := c.Get("logs", job.JobID)
-					if err == nil && logResp.StatusCode == 200 {
+					switch {
+					case err != nil:
+						// Transport-level failure fetching logs (network error, retries
+						// exhausted on repeated 5xx/429, etc). Distinct from "job never
+						// ran": we genuinely don't know what happened, so leave it
+						// unexplained rather than fabricate a reason.
+					case logResp.StatusCode == 200:
 						var logs struct {
 							Events []struct {
 								Output    string `json:"output"`
@@ -215,6 +222,18 @@ If no workflow ID is given, finds the latest workflow for the current project/br
 							// Parse test results
 							fj.TestReport = testparse.ParseFromLogs(allOutput.String())
 						}
+					case logResp.StatusCode == 404:
+						// The job never produced any logs — e.g. it never ran (queue
+						// timeout, quota, invalid/unavailable machine type) or was
+						// stopped before it started. Backend semaphore#1091 made this
+						// 404 meaningful: the logs endpoint now responds with the job's
+						// failure_reason (or a "never started"/"stopped before it
+						// started" message) in the body itself instead of an opaque
+						// 500, so the diagnosis is never empty for these jobs.
+						fj.FailureReason = decode404Body(logResp.Body)
+					default:
+						// Some other genuine API error (e.g. 401/403) fetching logs -
+						// leave it unexplained rather than guess.
 					}
 
 					if stopReason == nil && fj.Signal != nil {
@@ -263,6 +282,34 @@ If no workflow ID is given, finds the latest workflow for the current project/br
 		output.Result(diagnosis)
 		return nil
 	},
+}
+
+// defaultNoLogsReason is used only when the logs endpoint returns 404 with a
+// body we can't make sense of (empty, or not the JSON string shape backend
+// semaphore#1091 sends) — should not happen in practice, but a diagnosis
+// should never show a job with silently nothing to say.
+const defaultNoLogsReason = "job produced no logs, and the API gave no explanation"
+
+// decode404Body extracts the human-readable reason from a logs-endpoint 404
+// body. Backend semaphore#1091 made this body a JSON-encoded string (not an
+// object) carrying the reason, so a plain json.Unmarshal into a string
+// recovers it. Falls back to the raw bytes for older/other backends that
+// might send plain text, and to a generic message if there's nothing usable.
+func decode404Body(body []byte) string {
+	var s string
+	if err := json.Unmarshal(body, &s); err == nil {
+		// Valid JSON string (even if empty) - this IS the expected shape, so
+		// don't fall through to the raw-bytes branch below (which would
+		// return the literal quoted `""` for an empty message).
+		if trimmed := strings.TrimSpace(s); trimmed != "" {
+			return trimmed
+		}
+		return defaultNoLogsReason
+	}
+	if trimmed := strings.TrimSpace(string(body)); trimmed != "" {
+		return trimmed
+	}
+	return defaultNoLogsReason
 }
 
 func init() {
