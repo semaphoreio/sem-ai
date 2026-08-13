@@ -169,3 +169,7 @@ sem-ai promote-and-wait <id> --target "Production" --confirm
 - `--override` bypasses conditions — confirm with user first.
 - Creating a deployment target without any `--subject-*` flag may default to `ANY` (anyone can trigger) — surface this when scaffolding release targets and prefer `--subject-auto` for tag-only release flows.
 - `deploy update` REPLACES list fields. To merge new rules into existing ones, fetch current state with `deploy show` first.
+
+## Boundaries
+
+- This skill is the command recipes. For the underlying promotion model — promotion vs block, `auto_promote` anatomy, `parameters.env_vars`, and the diagnostic playbook — use the `semaphore-promotions` skill.

@@ -17,11 +17,11 @@ var discoverCmd = &cobra.Command{
 		result := map[string]any{
 			"commands": caps,
 			"tips": map[string]string{
-				"setup":       "Run 'sem-ai connect <host> <token>' to authenticate",
-				"examples":    "Run 'sem-ai <command> --examples' for usage examples on any command",
-				"skills":      "Install the Claude Code / Codex plugin ('/plugin marketplace add semaphoreio/sem-ai' then '/plugin install sem-ai@semaphoreio'), or 'npx skills add semaphoreio/sem-ai --all' for other agents",
-				"debug":       "For CI failures, start with 'sem-ai diagnose <workflow-id>'",
-				"format":      "All commands output JSON. Use --format table for human display",
+				"setup":    "Run 'sem-ai connect <host> <token>' to authenticate",
+				"examples": "Run 'sem-ai <command> --examples' for usage examples on any command",
+				"skills":   "Install the agent plugin from the shell — Claude Code: 'claude plugin marketplace add semaphoreio/sem-ai && claude plugin install sem-ai@semaphoreio'; Codex: 'codex plugin marketplace add semaphoreio/sem-ai && codex plugin add sem-ai@semaphoreio'; other agents: 'npx skills add semaphoreio/sem-ai --all'",
+				"debug":    "For CI failures, start with 'sem-ai diagnose <workflow-id>'",
+				"format":   "All commands output JSON. Use --format table for human display",
 			},
 		}
 
