@@ -91,7 +91,12 @@ func Error(code string, message string, status int) {
 		"message": message,
 		"status":  status,
 	}
-	b, _ := json.MarshalIndent(e, "", "  ")
+	var b []byte
+	if format == "compact" {
+		b, _ = json.Marshal(e)
+	} else {
+		b, _ = json.MarshalIndent(e, "", "  ")
+	}
 	fmt.Fprintln(stderr, string(b))
 	reported = true
 }

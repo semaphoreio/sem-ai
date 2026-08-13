@@ -220,9 +220,9 @@ func summarizePipelines(items []json.RawMessage) []pipelineSummary {
 			ID:            p.PplID,
 			WorkflowID:    p.WfID,
 			Name:          p.Name,
-			State:         p.State,
-			Result:        p.Result,
-			ResultReason:  p.ResultReason,
+			State:         strings.ToLower(p.State),
+			Result:        strings.ToLower(p.Result),
+			ResultReason:  strings.ToLower(p.ResultReason),
 			Branch:        p.BranchName,
 			CommitSHA:     p.CommitSHA,
 			CommitMessage: firstLine(p.CommitMessage),
@@ -233,6 +233,34 @@ func summarizePipelines(items []json.RawMessage) []pipelineSummary {
 		})
 	}
 	return summaries
+}
+
+func validateListWindow(days, limit int) error {
+	if days < 0 {
+		return fmt.Errorf("--days must be >= 0 (0 = no time filter)")
+	}
+	if limit < 0 {
+		return fmt.Errorf("--limit must be >= 0 (0 = server default)")
+	}
+	return nil
+}
+
+func listAllCapped(c *client.Client, kind string, params url.Values, limit int) ([]json.RawMessage, error) {
+	if limit <= 0 {
+		return c.ListAll(kind, params)
+	}
+	total := 0
+	items, err := c.ListAll(kind, params, func(page []json.RawMessage) bool {
+		total += len(page)
+		return total >= limit
+	})
+	if err != nil {
+		return nil, err
+	}
+	if len(items) > limit {
+		items = items[:limit]
+	}
+	return items, nil
 }
 
 func listWindowValues(flags *pflag.FlagSet, days, limit int, full bool) (int, int) {
@@ -268,6 +296,9 @@ var pipelineListCmd = &cobra.Command{
 		if !config.IsConfigured() {
 			return fmt.Errorf("not configured; run 'sem-ai connect' first")
 		}
+		if err := validateListWindow(pipelineListDaysFlag, pipelineListLimitFlag); err != nil {
+			return err
+		}
 		projectID, err := resolveProjectID(pipelineListProjectFlag)
 		if err != nil {
 			output.Error("project_error", err.Error(), 1)
@@ -281,6 +312,15 @@ var pipelineListCmd = &cobra.Command{
 		}
 		days, limit := listWindowValues(cmd.Flags(), pipelineListDaysFlag, pipelineListLimitFlag, pipelineListFullFlag)
 		listWindowParams(params, days, limit, time.Now())
+		if pipelineListFullFlag {
+			items, err := listAllCapped(c, "pipelines", params, limit)
+			if err != nil {
+				output.Error("api_error", err.Error(), 1)
+				return err
+			}
+			output.Result(items)
+			return nil
+		}
 		resp, err := c.ListWithParams("pipelines", params)
 		if err != nil {
 			output.Error("api_error", err.Error(), 1)
@@ -290,18 +330,16 @@ var pipelineListCmd = &cobra.Command{
 			output.Error("api_error", fmt.Sprintf("HTTP %d: %s", resp.StatusCode, string(resp.Body)), resp.StatusCode)
 			return fmt.Errorf("API returned %d", resp.StatusCode)
 		}
-		if pipelineListFullFlag {
-			var result any
-			json.Unmarshal(resp.Body, &result)
-			output.Result(result)
-			return nil
-		}
 		var items []json.RawMessage
 		if err := json.Unmarshal(resp.Body, &items); err != nil {
 			output.Error("parse_error", err.Error(), 1)
 			return err
 		}
-		output.Result(summarizePipelines(items))
+		summaries := summarizePipelines(items)
+		if skipped := len(items) - len(summaries); skipped > 0 {
+			output.Warn(fmt.Sprintf("skipped %d unparseable items", skipped))
+		}
+		output.Result(summaries)
 		return nil
 	},
 }
@@ -489,7 +527,7 @@ func init() {
 	pipelineListCmd.Flags().StringVar(&pipelineListBranchFlag, "branch", "", "filter by branch name")
 	pipelineListCmd.Flags().IntVar(&pipelineListDaysFlag, "days", 30, "only pipelines created in the last N days (0 = no time filter)")
 	pipelineListCmd.Flags().IntVar(&pipelineListLimitFlag, "limit", 30, "max number of pipelines to return (0 = server default)")
-	pipelineListCmd.Flags().BoolVar(&pipelineListFullFlag, "full", false, "return the full raw API payload instead of trimmed summaries (drops the default --days/--limit window unless set explicitly)")
+	pipelineListCmd.Flags().BoolVar(&pipelineListFullFlag, "full", false, "return the raw API payload across all pages instead of trimmed summaries (drops the default --days/--limit window unless set explicitly)")
 	pipelineCmd.AddCommand(pipelineListCmd)
 	pipelineCmd.AddCommand(pipelineShowCmd)
 	pipelineCmd.AddCommand(pipelineStopCmd)

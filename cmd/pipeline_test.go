@@ -56,8 +56,8 @@ func TestSummarizePipelines(t *testing.T) {
 	if p.ID != "ppl-1" || p.WorkflowID != "wf-1" {
 		t.Errorf("ids: got %q/%q", p.ID, p.WorkflowID)
 	}
-	if p.Result != "PASSED" || p.ResultReason != "TEST" {
-		t.Errorf("result: got %q/%q", p.Result, p.ResultReason)
+	if p.State != "done" || p.Result != "passed" || p.ResultReason != "test" {
+		t.Errorf("state/result must be lowercased to match pipeline show, got %q/%q/%q", p.State, p.Result, p.ResultReason)
 	}
 	if p.CommitMessage != "first line of commit" {
 		t.Errorf("commit_message not trimmed to first line: %q", p.CommitMessage)
