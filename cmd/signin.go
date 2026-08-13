@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/semaphoreio/sem-ai/pkg/client"
+	"github.com/semaphoreio/sem-ai/pkg/config"
 	"github.com/semaphoreio/sem-ai/pkg/output"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
@@ -501,9 +502,9 @@ func runDeviceFlow(c *cliAuthClient, w io.Writer, sleep func(time.Duration), att
 
 // ── shared helpers ───────────────────────────────────────────────────────────
 
-// writeContext persists a token/host into ~/.sem.yaml — same shape as `connect`
-// — optionally activating it, and enforces 0600 permissions on the config file
-// (it holds a secret). It returns the context name it wrote to.
+// writeContext persists a token/host into ~/.sem.yaml — same shape and same
+// atomic config.Write as `connect` (temp file + rename, 0600 since it holds a
+// secret) — optionally activating it. It returns the context name it wrote to.
 func writeContext(host, token string, active bool) (string, error) {
 	name := strings.ReplaceAll(host, ".", "_")
 	if active {
@@ -511,11 +512,8 @@ func writeContext(host, token string, active bool) (string, error) {
 	}
 	viper.Set(fmt.Sprintf("contexts.%s.auth.token", name), token)
 	viper.Set(fmt.Sprintf("contexts.%s.host", name), host)
-	if err := viper.WriteConfig(); err != nil {
+	if err := config.Write(); err != nil {
 		return name, err
-	}
-	if path := viper.ConfigFileUsed(); path != "" {
-		_ = os.Chmod(path, 0600)
 	}
 	return name, nil
 }
