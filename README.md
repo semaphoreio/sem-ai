@@ -54,7 +54,7 @@ codex plugin marketplace add semaphoreio/sem-ai
 codex plugin add sem-ai@semaphoreio
 ```
 
-The plugin drops every sem-ai skill (debug-pipeline, deploy, fix-flaky, gha-to-semaphore, init, manage-infra, probe-agent-environment, project-health, sem-ai-bootstrap, semaphore-blocks, semaphore-ci, semaphore-promotions, semaphore-test-results, semaphore-toolbox, test-intelligence, testbox, watch-after-push) into your host.
+The plugin drops every sem-ai skill (debug-pipeline, deploy, fix-flaky, gha-to-semaphore, init, manage-infra, probe-agent-environment, project-health, sem-ai-bootstrap, semaphore-blocks, semaphore-ci, semaphore-preflight, semaphore-promotions, semaphore-test-results, semaphore-toolbox, test-intelligence, testbox, watch-after-push) into your host.
 
 Claude Code refreshes registered marketplaces at session start, picks up the new plugin version, and applies it automatically — there is no manifest flag to set for this. To force an immediate refresh:
 
@@ -233,6 +233,16 @@ All analytics commands accept `--project` (auto-detected from git), `--days`, `-
 | `deploy activate <id>` | Activate a target |
 | `deploy deactivate <id>` | Deactivate a target |
 | `deploy delete <id>` | Delete a target |
+
+### Pre-flight checks
+
+Commands that run at pipeline initialization, before any block. One check per organization, one per project — `--project` selects the project check, omitting it selects the organization-wide one.
+
+| Command | Description |
+|---------|-------------|
+| `pfc show [--project <p>]` | Show the check (commands, secrets, agent) |
+| `pfc apply [--project <p>]` | Create or replace the check, from flags or `--from-file` |
+| `pfc delete [--project <p>]` | Remove the check |
 
 ### Secrets
 
