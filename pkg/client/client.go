@@ -11,6 +11,7 @@ import (
 	"math"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
 	"time"
 
@@ -65,10 +66,17 @@ func NewTraceParent() {
 }
 
 const (
-	maxRetries     = 5
-	baseDelay      = 100 * time.Millisecond
-	maxDelay       = 2 * time.Second
-	defaultTimeout = 30 * time.Second
+	maxRetries = 5
+	baseDelay  = 100 * time.Millisecond
+	maxDelay   = 2 * time.Second
+	// maxRetryAfterWait bounds how long a Retry-After header may park the
+	// process. Beyond it the request fails immediately, carrying the advised
+	// delay, so a caller can say how long to wait rather than appearing hung
+	// — a per-organization throttle window is measured in minutes, and eight
+	// concurrent download workers each sleeping that long is worse than one
+	// clear error.
+	maxRetryAfterWait = 10 * time.Second
+	defaultTimeout    = 30 * time.Second
 )
 
 type Client struct {
@@ -360,14 +368,63 @@ func (c *Client) GetExternal(rawURL string) (*Response, error) {
 	return &Response{Body: body, StatusCode: resp.StatusCode, Headers: resp.Header}, nil
 }
 
+// HTTPError is returned when retries are exhausted against a response that
+// carried a status. Without it the status is lost, and a caller cannot tell a
+// rate limit apart from a server fault — which matters because they call for
+// opposite responses: back off and wait, or fail the one request.
+type HTTPError struct {
+	StatusCode int
+	Body       string
+	Attempts   int
+	// RetryAfter is what the server asked us to wait, when it said so. Zero
+	// means the response carried no usable Retry-After.
+	RetryAfter time.Duration
+}
+
+func (e *HTTPError) Error() string {
+	if e.RetryAfter > 0 {
+		return fmt.Sprintf("HTTP %d: %s (retry after %s)", e.StatusCode, e.Body, e.RetryAfter)
+	}
+	return fmt.Sprintf("HTTP %d: %s (failed after %d retries)", e.StatusCode, e.Body, e.Attempts-1)
+}
+
+// parseRetryAfter reads the header in both forms RFC 9110 allows: a delay in
+// seconds, or an HTTP-date. Anything unparseable or in the past yields 0,
+// which leaves the caller on its own backoff.
+func parseRetryAfter(h http.Header, now time.Time) time.Duration {
+	raw := strings.TrimSpace(h.Get("Retry-After"))
+	if raw == "" {
+		return 0
+	}
+	if secs, err := strconv.Atoi(raw); err == nil {
+		if secs <= 0 {
+			return 0
+		}
+		return time.Duration(secs) * time.Second
+	}
+	if when, err := http.ParseTime(raw); err == nil {
+		if d := when.Sub(now); d > 0 {
+			return d
+		}
+	}
+	return 0
+}
+
 func (c *Client) doWithRetry(method, u string, body []byte) (*Response, error) {
 	var lastErr error
+	var lastStatus int
+	var lastBody string
+	var retryAfterWait time.Duration
 	for attempt := 0; attempt <= maxRetries; attempt++ {
 		if attempt > 0 {
 			delay := time.Duration(math.Min(
 				float64(baseDelay)*math.Pow(2, float64(attempt-1)),
 				float64(maxDelay),
 			))
+			if retryAfterWait > 0 {
+				delay = retryAfterWait
+				retryAfterWait = 0
+			}
 			log.Printf("retry %d/%d after %v", attempt, maxRetries, delay)
 			time.Sleep(delay)
 		}
@@ -380,11 +437,30 @@ func (c *Client) doWithRetry(method, u string, body []byte) (*Response, error) {
 
 		// Retry on 5xx and 429
 		if resp.StatusCode >= 500 || resp.StatusCode == 429 {
-			lastErr = fmt.Errorf("HTTP %d: %s", resp.StatusCode, string(resp.Body))
+			lastStatus, lastBody = resp.StatusCode, string(resp.Body)
+			lastErr = fmt.Errorf("HTTP %d: %s", resp.StatusCode, lastBody)
+
+			// A server that says how long to wait knows better than our
+			// backoff curve does. Honour it when it is short; when it is
+			// longer than we are willing to block, stop now and report it —
+			// retrying inside a window we were just told to sit out only
+			// spends more of the budget that is already exhausted.
+			if wait := parseRetryAfter(resp.Headers, time.Now()); wait > 0 {
+				if wait > maxRetryAfterWait {
+					return nil, &HTTPError{
+						StatusCode: lastStatus, Body: lastBody,
+						Attempts: attempt + 1, RetryAfter: wait,
+					}
+				}
+				retryAfterWait = wait
+			}
 			continue
 		}
 
 		return resp, nil
+	}
+	if lastStatus != 0 {
+		return nil, &HTTPError{StatusCode: lastStatus, Body: lastBody, Attempts: maxRetries + 1}
 	}
 	return nil, fmt.Errorf("request failed after %d retries: %w", maxRetries, lastErr)
 }
