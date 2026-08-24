@@ -158,6 +158,13 @@ func initConfig() error {
 		return fmt.Errorf("failed to find home directory: %w", err)
 	}
 
+	// Start from clean viper state every invocation. viper.Set (connect,
+	// signin, context switch) writes to viper's override registry, which
+	// ReadInConfig never clears — without the reset, one mutating tool call
+	// in the long-lived MCP server pins its values over every later call's
+	// re-read of the file (e.g. a token rotated by another process is never
+	// picked up until the server restarts).
+	viper.Reset()
 	viper.AddConfigPath(home)
 	viper.SetConfigName(".sem")
 	viper.SetConfigType("yaml")
@@ -169,7 +176,9 @@ func initConfig() error {
 	}
 
 	if err := viper.ReadInConfig(); err != nil {
-		log.Printf("warning: could not read config: %v", err)
+		if _, ok := err.(viper.ConfigFileNotFoundError); !ok {
+			return fmt.Errorf("could not read config %s: %w", path, err)
+		}
 	}
 
 	config.SetExplicitContext(contextFlag)
