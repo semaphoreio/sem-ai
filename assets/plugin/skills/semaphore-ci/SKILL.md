@@ -54,6 +54,29 @@ For the is-it-green check, prefer `sem-ai status` — it keeps the failure drill
 
 Caveat: if the repo maps to **multiple** Semaphore projects, `sem-ai status` returns all of them (`"multiple_projects": true`) instead of guessing — pass `--project <name>` to pick one. (To target a specific run regardless, filter `workflow list` by `commit_sha`; see the `watch-after-push` skill.)
 
+## Organization (context) selection
+
+`~/.sem.yaml` can hold many contexts, one per organization, and `active-context` names the one commands use by default. That key is shared mutable state: `context switch`, `connect`, and `signin` all write it, so another session or agent on the same machine can move it between two of your commands and the second one silently runs against the wrong organization.
+
+With more than one context, pin the organization instead of reading the shared key:
+
+```bash
+sem-ai --context myorg_semaphoreci_com status   # this invocation only
+export SEM_CONTEXT=myorg_semaphoreci_com        # every call in this session
+sem-ai context list                             # names and which one is active
+```
+
+Resolution order: `--context` > `SEM_CONTEXT` > `SEMAPHORE_HOST`/`SEMAPHORE_API_TOKEN` > `active-context`. A named context fully shadows the credential env vars, so its host and token always travel together. An unknown name fails immediately and lists what is available. Neither selector writes to `~/.sem.yaml`.
+
+Over MCP, `context` is a parameter on every tool — pass it per call. `sem-ai mcp --context <name>` pins a whole server, and a per-call `context` still overrides it.
+
+Rules of thumb:
+
+- Don't run `context switch` to set up for a later command. It mutates the shared key for every session on the machine, and it does not reliably persist across separate shell invocations in an agent harness anyway. Pin instead.
+- Keep using whichever context was already active unless the user asks for a different organization — pin its name explicitly rather than assuming it will still be active later.
+- `context switch` is for a human deliberately changing their default, not for scoping one command.
+- Writes to `~/.sem.yaml` (`connect`, `signin`, `context switch`) replace the whole file, so two of them overlapping is last-writer-wins for the entire config. Sequence them; don't run them concurrently from several sessions.
+
 ## Sub-skills — load for deeper context
 
 For detailed workflows with step-by-step examples, load the relevant sub-skill:
