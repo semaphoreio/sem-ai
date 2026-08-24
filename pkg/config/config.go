@@ -107,21 +107,34 @@ func Write() error {
 		if err := viper.WriteConfig(); err != nil {
 			return err
 		}
-		if path != "" {
-			if resolved, err := filepath.EvalSymlinks(path); err == nil {
-				path = resolved
-			}
-			_ = os.Chmod(path, 0600)
+		if path == "" {
+			return nil
+		}
+		resolved, err := filepath.EvalSymlinks(path)
+		if err != nil {
+			return fmt.Errorf("resolve %s: %w", path, err)
+		}
+		// The file now holds a token at whatever mode WriteConfig found. A
+		// failure here has to be reported: the write succeeded, so silently
+		// returning nil would claim a 0600 credential file that is still
+		// group- or world-readable.
+		if err := os.Chmod(resolved, 0600); err != nil {
+			return fmt.Errorf("restrict %s to 0600: %w", resolved, err)
 		}
 		return nil
 	}
 
 	// rename(2) replaces the link, not its target, so write through to the
 	// real file — otherwise a symlinked ~/.sem.yaml is silently detached from
-	// wherever the user keeps it.
-	if resolved, err := filepath.EvalSymlinks(path); err == nil {
-		path = resolved
+	// wherever the user keeps it. An unresolvable path is an error rather than
+	// a reason to write to the link: viper just read this file, so failing to
+	// resolve it now means the tree moved underneath us, and renaming over the
+	// link would orphan whatever it pointed at.
+	resolved, err := filepath.EvalSymlinks(path)
+	if err != nil {
+		return fmt.Errorf("resolve %s: %w", path, err)
 	}
+	path = resolved
 
 	data, err := yaml.Marshal(viper.AllSettings())
 	if err != nil {
@@ -152,6 +165,17 @@ func Write() error {
 
 	if err := os.Rename(tmp.Name(), path); err != nil {
 		return fmt.Errorf("replace %s: %w", path, err)
+	}
+
+	// The bytes are on disk and the rename is visible to every reader, but the
+	// directory entry itself is unsynced metadata: a power loss here can leave
+	// the old file behind. fsync on the parent closes that gap. Best-effort on
+	// purpose — the config is already updated for anything short of a crash,
+	// and a directory fd is not syncable everywhere (Windows, some network
+	// filesystems), which is not a reason to report a failed write.
+	if dir, err := os.Open(filepath.Dir(path)); err == nil {
+		_ = dir.Sync()
+		dir.Close()
 	}
 	return nil
 }
