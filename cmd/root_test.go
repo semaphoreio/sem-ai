@@ -6,7 +6,6 @@ import (
 	"strings"
 	"testing"
 
-	homedir "github.com/mitchellh/go-homedir"
 	"github.com/spf13/viper"
 )
 
@@ -15,12 +14,7 @@ import (
 // one mutating call in the long-lived MCP server pins its values over every
 // later call's re-read of the file.
 func TestInitConfigDropsStaleOverrides(t *testing.T) {
-	home := t.TempDir()
-	t.Setenv("HOME", home)
-	prevCache := homedir.DisableCache
-	homedir.DisableCache = true
-	t.Cleanup(func() { homedir.DisableCache = prevCache; homedir.Reset(); viper.Reset() })
-	homedir.Reset()
+	home := isolateHome(t)
 
 	seed := "active-context: fromfile\ncontexts:\n  fromfile:\n    host: fromfile.semaphoreci.com\n    auth:\n      token: filetok\n"
 	if err := os.WriteFile(filepath.Join(home, ".sem.yaml"), []byte(seed), 0600); err != nil {
@@ -38,12 +32,7 @@ func TestInitConfigDropsStaleOverrides(t *testing.T) {
 }
 
 func TestInitConfigReportsMalformedConfig(t *testing.T) {
-	home := t.TempDir()
-	t.Setenv("HOME", home)
-	prevCache := homedir.DisableCache
-	homedir.DisableCache = true
-	t.Cleanup(func() { homedir.DisableCache = prevCache; homedir.Reset(); viper.Reset() })
-	homedir.Reset()
+	home := isolateHome(t)
 
 	if err := os.WriteFile(filepath.Join(home, ".sem.yaml"), []byte("contexts: [unclosed\n"), 0600); err != nil {
 		t.Fatal(err)

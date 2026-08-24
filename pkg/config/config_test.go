@@ -22,6 +22,17 @@ func addContext(name, token, host string) {
 	viper.Set("contexts."+name+".host", host)
 }
 
+// clearSelectors blanks every credential/selector env var, so a test asserts
+// against the config file it seeded rather than the shell it inherited. An
+// exported SEM_CONTEXT alone made the file-context tests fail or resolve the
+// wrong org.
+func clearSelectors(t *testing.T) {
+	t.Helper()
+	t.Setenv(EnvContext, "")
+	t.Setenv(EnvToken, "")
+	t.Setenv(EnvHost, "")
+}
+
 func pinContext(t *testing.T, name string) {
 	t.Helper()
 	SetExplicitContext(name)
@@ -30,8 +41,7 @@ func pinContext(t *testing.T, name string) {
 
 func TestLoad_FileContext(t *testing.T) {
 	viper.Reset()
-	t.Setenv(EnvToken, "")
-	t.Setenv(EnvHost, "")
+	clearSelectors(t)
 	setFileContext("acme", "filetok", "acme.semaphoreci.com")
 
 	if err := Load(); err != nil {
@@ -50,6 +60,7 @@ func TestLoad_FileContext(t *testing.T) {
 }
 
 func TestLoad_EnvOnly(t *testing.T) {
+	t.Setenv(EnvContext, "")
 	viper.Reset()
 	t.Setenv(EnvToken, "envtok")
 	t.Setenv(EnvHost, "env.semaphoreci.com")
@@ -73,6 +84,7 @@ func TestLoad_EnvOnly(t *testing.T) {
 }
 
 func TestLoad_EnvOverridesFile(t *testing.T) {
+	t.Setenv(EnvContext, "")
 	viper.Reset()
 	setFileContext("acme", "filetok", "acme.semaphoreci.com")
 	t.Setenv(EnvToken, "envtok")
@@ -96,8 +108,7 @@ func TestLoad_EnvOverridesFile(t *testing.T) {
 func TestLoad_EmptyEnvFallsBackToFile(t *testing.T) {
 	viper.Reset()
 	setFileContext("acme", "filetok", "acme.semaphoreci.com")
-	t.Setenv(EnvToken, "")
-	t.Setenv(EnvHost, "")
+	clearSelectors(t)
 
 	if err := Load(); err != nil {
 		t.Fatalf("Load() error: %v", err)
@@ -113,8 +124,7 @@ func TestLoad_EmptyEnvFallsBackToFile(t *testing.T) {
 
 func TestLoad_ExplicitContextIgnoresActiveContext(t *testing.T) {
 	viper.Reset()
-	t.Setenv(EnvToken, "")
-	t.Setenv(EnvHost, "")
+	clearSelectors(t)
 	setFileContext("acme", "acmetok", "acme.semaphoreci.com")
 	addContext("sxmoon", "sxtok", "sxmoon.semaphoreci.com")
 	pinContext(t, "sxmoon")
@@ -135,6 +145,7 @@ func TestLoad_ExplicitContextIgnoresActiveContext(t *testing.T) {
 }
 
 func TestLoad_ExplicitContextShadowsCredentialEnv(t *testing.T) {
+	t.Setenv(EnvContext, "")
 	viper.Reset()
 	setFileContext("acme", "acmetok", "acme.semaphoreci.com")
 	addContext("sxmoon", "sxtok", "sxmoon.semaphoreci.com")
@@ -158,9 +169,8 @@ func TestLoad_EnvContextSelector(t *testing.T) {
 	viper.Reset()
 	setFileContext("acme", "acmetok", "acme.semaphoreci.com")
 	addContext("sxmoon", "sxtok", "sxmoon.semaphoreci.com")
+	clearSelectors(t)
 	t.Setenv(EnvContext, "sxmoon")
-	t.Setenv(EnvToken, "")
-	t.Setenv(EnvHost, "")
 
 	if err := Load(); err != nil {
 		t.Fatalf("Load() error: %v", err)
@@ -194,6 +204,7 @@ func TestLoad_FlagBeatsEnvContext(t *testing.T) {
 }
 
 func TestLoad_UnknownExplicitContextErrors(t *testing.T) {
+	t.Setenv(EnvContext, "")
 	viper.Reset()
 	setFileContext("acme", "acmetok", "acme.semaphoreci.com")
 	pinContext(t, "nope")
