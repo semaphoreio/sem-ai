@@ -109,6 +109,7 @@ func TestResetFlagsFullTreeClean(t *testing.T) {
 }
 
 func TestExecuteCobraVersion(t *testing.T) {
+	isolateConfigHome(t)
 	result, err := executeCobra([]string{"version"})
 	if err != nil {
 		t.Fatalf("error: %v", err)
@@ -119,6 +120,7 @@ func TestExecuteCobraVersion(t *testing.T) {
 }
 
 func TestExecuteCobraUnknownCommand(t *testing.T) {
+	isolateConfigHome(t)
 	result, err := executeCobra([]string{"nonexistent-xyz"})
 	if err == nil {
 		t.Error("expected error for unknown command")
@@ -129,6 +131,7 @@ func TestExecuteCobraUnknownCommand(t *testing.T) {
 }
 
 func TestExecuteCobraFlagBleed(t *testing.T) {
+	isolateConfigHome(t)
 	// Call 1: YAML format
 	r1, err := executeCobra([]string{"version", "--format", "yaml"})
 	if err != nil {
@@ -153,6 +156,7 @@ func TestExecuteCobraFlagBleed(t *testing.T) {
 }
 
 func TestExecuteCobraStringFlagBleed(t *testing.T) {
+	isolateConfigHome(t)
 	// Call 1: set --project on workflow list (will fail, that's fine)
 	executeCobra([]string{"workflow", "list", "--project", "proj-alpha"})
 
@@ -358,5 +362,38 @@ func TestSliceFlagsDefaultToEmpty(t *testing.T) {
 
 	if len(offenders) > 0 {
 		t.Errorf("slice flags with non-empty defaults: %v\nresetFlag clears these to empty — teach it to restore the default first", offenders)
+	}
+}
+
+// `sem-ai mcp --context X` is a server-wide pin. resetFlags clears every root
+// persistent flag before each tool call, so without restoring it the pin was
+// dropped on the first call and every unpinned call silently fell back to the
+// shared active-context — the exact clobber --context exists to avoid.
+func TestExecuteCobraKeepsServerContextPin(t *testing.T) {
+	isolateConfigHome(t, "pinned", "percall")
+	prev := mcpBaseContext
+	t.Cleanup(func() { mcpBaseContext, contextFlag = prev, "" })
+
+	mcpBaseContext = "pinned"
+
+	if _, err := executeCobra([]string{"version"}); err != nil {
+		t.Fatalf("version under a pinned server: %v", err)
+	}
+	if contextFlag != "pinned" {
+		t.Errorf("contextFlag = %q after an unpinned tool call, want the server pin %q", contextFlag, "pinned")
+	}
+
+	if _, err := executeCobra([]string{"version", "--context", "percall"}); err != nil {
+		t.Fatalf("version with a per-call context: %v", err)
+	}
+	if contextFlag != "percall" {
+		t.Errorf("contextFlag = %q, want the per-call argument %q to win over the server pin", contextFlag, "percall")
+	}
+
+	if _, err := executeCobra([]string{"version"}); err != nil {
+		t.Fatalf("version after a per-call context: %v", err)
+	}
+	if contextFlag != "pinned" {
+		t.Errorf("contextFlag = %q, want the server pin %q back after a per-call override", contextFlag, "pinned")
 	}
 }

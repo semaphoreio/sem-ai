@@ -19,6 +19,11 @@ import (
 // executeMu serializes cobra executions — cobra is not concurrent-safe.
 var executeMu sync.Mutex
 
+// mcpBaseContext holds the --context this server process was started with, so
+// executeCobra can put it back after resetFlags. Empty unless `sem-ai mcp
+// --context <name>` was used.
+var mcpBaseContext string
+
 var mcpCmd = &cobra.Command{
 	Use:   "mcp",
 	Short: "Start MCP (Model Context Protocol) stdio server",
@@ -54,6 +59,13 @@ func runMCPServer() error {
 	// tool call re-enters the cobra tree, so PersistentPreRunE reads this when
 	// stamping the x-client-source header.
 	invocationSource = "semai-mcp"
+
+	// resetFlags clears every root persistent flag before each tool call,
+	// which would drop a server-wide pin passed as `sem-ai mcp --context X`
+	// on the first call and silently fall back to the shared active-context.
+	// Remember it here, while the mcp command's own flag parse is still the
+	// most recent one.
+	mcpBaseContext = contextFlag
 
 	s := server.NewMCPServer(
 		"sem-ai",
@@ -238,6 +250,11 @@ func resetFlag(f *pflag.Flag) {
 func executeCobra(args []string) (string, error) {
 	// Reset all flags to defaults before each call
 	resetFlags(rootCmd)
+
+	// Restore the server-wide context pin the reset just cleared. A per-call
+	// context argument still wins: it arrives in args and overwrites this
+	// during the Execute below.
+	contextFlag = mcpBaseContext
 
 	var stdoutBuf, stderrBuf bytes.Buffer
 
