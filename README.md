@@ -349,9 +349,11 @@ An explicit selector (1 or 2) fully shadows everything below it — no mixing of
 
 An unknown context name fails hard and lists the available contexts.
 
-Over MCP, `context` is a parameter on every tool, so a single server can serve calls pinned to different orgs.
+Over MCP, `context` is a parameter on every tool, so a single server can serve calls pinned to different orgs. `sem-ai mcp --context <name>` pins the whole server; a `context` argument on an individual call overrides it for that call.
 
-This pins the *read* path. `context switch` and `connect` still write `active-context`, and that key stays shared — pinning is how a session opts out of it. The write itself is atomic (temp file + rename), so a concurrent reader never sees a half-written `~/.sem.yaml`.
+This pins the *read* path — nothing above writes to `~/.sem.yaml`. `context switch`, `connect`, and `signin` still write it, and `active-context` stays a shared key; pinning is how a session opts out of reading it.
+
+Writes replace the file through a temp file plus `rename(2)`, so a concurrent reader sees either the old config or the new one, never a half-written file. That is torn-read protection only: each write serializes the whole config as the writing process last read it, so two writes that overlap are last-writer-wins for the *entire file* — a context added by one can disappear when the other lands. Sequence commands that write, or let one session own the file. (The atomic path covers YAML; if viper picked up a non-YAML `~/.sem.json`, that write is still in-place.)
 
 ## Development
 
