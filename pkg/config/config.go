@@ -91,23 +91,36 @@ func Load() error {
 // same viper.AllSettings() through the same yaml.Marshal.
 func Write() error {
 	path := viper.ConfigFileUsed()
+
+	// Only YAML gets the atomic path. viper picks its config file by scanning
+	// SupportedExts in order and ignores SetConfigType while doing it, so a
+	// stray ~/.sem.json wins over ~/.sem.yaml — writing YAML bytes into it
+	// would leave an unparseable config. The format follows this *logical*
+	// name, never the symlink target: ~/.sem.yaml pointing at an extensionless
+	// dotfiles file is still YAML. An empty path (no file ever read) falls
+	// back too. The fallback is viper's in-place write — not atomic, but
+	// exactly the previous behaviour — with 0600 re-asserted on the real file
+	// since it holds a token and WriteConfig keeps whatever mode it finds.
+	switch strings.ToLower(filepath.Ext(path)) {
+	case ".yaml", ".yml":
+	default:
+		if err := viper.WriteConfig(); err != nil {
+			return err
+		}
+		if path != "" {
+			if resolved, err := filepath.EvalSymlinks(path); err == nil {
+				path = resolved
+			}
+			_ = os.Chmod(path, 0600)
+		}
+		return nil
+	}
+
 	// rename(2) replaces the link, not its target, so write through to the
 	// real file — otherwise a symlinked ~/.sem.yaml is silently detached from
 	// wherever the user keeps it.
 	if resolved, err := filepath.EvalSymlinks(path); err == nil {
 		path = resolved
-	}
-
-	// Only YAML gets the atomic path. viper picks its config file by scanning
-	// SupportedExts in order and ignores SetConfigType while doing it, so a
-	// stray ~/.sem.json wins over ~/.sem.yaml — writing YAML bytes into it
-	// would leave an unparseable config. An empty path (no file ever read)
-	// lands here too. Both fall back to viper's in-place write: not atomic,
-	// but exactly the previous behaviour.
-	switch strings.ToLower(filepath.Ext(path)) {
-	case ".yaml", ".yml":
-	default:
-		return viper.WriteConfig()
 	}
 
 	data, err := yaml.Marshal(viper.AllSettings())

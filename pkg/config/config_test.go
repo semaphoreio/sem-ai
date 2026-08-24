@@ -415,3 +415,78 @@ func TestWrite_NonYAMLTargetStaysParseable(t *testing.T) {
 		t.Errorf("active-context = %q, want %q", got, "beta")
 	}
 }
+
+// A ~/.sem.yaml symlinked to an extensionless dotfiles target is still YAML —
+// the format follows the logical name viper read, not the target's suffix.
+// Resolving the symlink before the format check sent this layout down the
+// non-atomic fallback.
+func TestWrite_SymlinkToExtensionlessTargetStaysAtomic(t *testing.T) {
+	dir := t.TempDir()
+	real := filepath.Join(dir, "semaphore-config")
+	if err := os.WriteFile(real, []byte("active-context: acme\ncontexts:\n  acme:\n    host: acme.semaphoreci.com\n    auth:\n      token: acmetok\n"), 0644); err != nil {
+		t.Fatalf("seed real config: %v", err)
+	}
+	link := filepath.Join(dir, ".sem.yaml")
+	if err := os.Symlink(real, link); err != nil {
+		t.Fatalf("symlink: %v", err)
+	}
+
+	viper.Reset()
+	viper.SetConfigType("yaml")
+	viper.SetConfigFile(link)
+	if err := viper.ReadInConfig(); err != nil {
+		t.Fatalf("read through symlink: %v", err)
+	}
+
+	viper.Set("active-context", "beta")
+	addContext("beta", "betatok", "beta.semaphoreci.com")
+	if err := Write(); err != nil {
+		t.Fatalf("Write() error: %v", err)
+	}
+
+	data, err := os.ReadFile(real)
+	if err != nil {
+		t.Fatalf("read real config: %v", err)
+	}
+	if !strings.Contains(string(data), "betatok") {
+		t.Errorf("extensionless symlink target not written through: %q", data)
+	}
+	var parsed map[string]any
+	if err := yaml.Unmarshal(data, &parsed); err != nil {
+		t.Errorf("target is no longer valid YAML: %v", err)
+	}
+	info, err := os.Stat(real)
+	if err != nil {
+		t.Fatalf("stat: %v", err)
+	}
+	if perm := info.Mode().Perm(); perm != 0600 {
+		t.Errorf("mode = %o, want 600 — the file holds API tokens", perm)
+	}
+}
+
+// The non-YAML fallback truncates in place and keeps whatever mode the file
+// had; Write must re-assert 0600 there since the file holds a token.
+func TestWrite_FallbackEnforces0600(t *testing.T) {
+	path := filepath.Join(t.TempDir(), ".sem.json")
+	if err := os.WriteFile(path, []byte(`{"active-context":"acme"}`), 0644); err != nil {
+		t.Fatalf("seed config: %v", err)
+	}
+
+	viper.Reset()
+	viper.SetConfigFile(path)
+	if err := viper.ReadInConfig(); err != nil {
+		t.Fatalf("ReadInConfig: %v", err)
+	}
+	addContext("beta", "betatok", "beta.semaphoreci.com")
+	if err := Write(); err != nil {
+		t.Fatalf("Write() error: %v", err)
+	}
+
+	info, err := os.Stat(path)
+	if err != nil {
+		t.Fatalf("stat: %v", err)
+	}
+	if perm := info.Mode().Perm(); perm != 0600 {
+		t.Errorf("fallback mode = %o, want 600 — the file holds API tokens", perm)
+	}
+}
