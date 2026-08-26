@@ -62,9 +62,11 @@ With more than one context, pin the organization instead of reading the shared k
 
 ```bash
 sem-ai --context myorg_semaphoreci_com status   # this invocation only
-export SEM_CONTEXT=myorg_semaphoreci_com        # every call in this session
+export SEM_CONTEXT=myorg_semaphoreci_com        # every later call in this shell
 sem-ai context list                             # names and which one is active
 ```
+
+Pin even on a machine with one context: another session's `connect` or `signin` adds a second and makes it active, so being alone in the file is not a property that survives the session.
 
 Resolution order: `--context` > `SEM_CONTEXT` > `SEMAPHORE_HOST`/`SEMAPHORE_API_TOKEN` > `active-context`. A named context fully shadows the credential env vars, so its host and token always travel together. An unknown name fails immediately and lists what is available. Neither selector writes to `~/.sem.yaml`.
 
@@ -75,6 +77,9 @@ Rules of thumb:
 - Don't run `context switch` to set up for a later command. It mutates the shared key for every session on the machine, and it does not reliably persist across separate shell invocations in an agent harness anyway. Pin instead.
 - Keep using whichever context was already active unless the user asks for a different organization — pin its name explicitly rather than assuming it will still be active later.
 - `context switch` is for a human deliberately changing their default, not for scoping one command.
+- Onboarding a new organization works under a pin: `connect`, `signin`, `context switch`, and `context list` ignore the selectors, so naming a context that does not exist yet does not block the command that creates it. The selector is ignored rather than applied — `connect` names the context after its host, so `--context neworg connect neworg.semaphoreci.com TOKEN` creates `neworg_semaphoreci_com`; re-pin to that name afterwards. Giving `connect` a `<host>` plus a selector resolving to a different host is refused, not guessed.
+- Onboarding happens on the command line: `connect` and `signin` are deliberately not MCP tools (a device flow would hold the server's lock and hide its one-time code; `connect`'s two positional arguments cannot be encoded as tool arguments). Run them in a shell, then use the context they created.
+- `context list` marks the file's active context, and each row's `pinned` says which one the current invocation selected; `context show` reports what this invocation resolves to. A selector that resolves to a host different from the one `connect`/`signin` was given is refused rather than silently ignored.
 - Writes to `~/.sem.yaml` (`connect`, `signin`, `context switch`) replace the whole file, so two of them overlapping is last-writer-wins for the entire config. Sequence them; don't run them concurrently from several sessions.
 
 ## Sub-skills — load for deeper context
