@@ -27,6 +27,11 @@ var mcpBaseContext string
 var mcpCmd = &cobra.Command{
 	Use:   "mcp",
 	Short: "Start MCP (Model Context Protocol) stdio server",
+	// The server itself reads no credentials — each tool call resolves its own
+	// context. Resolving the pin here as well would stop a server from starting
+	// against an organization that has not been connected yet, which is exactly
+	// the "pin now, onboard after" case the flag exists for.
+	Annotations: map[string]string{contextAgnostic: "true"},
 	Long: `Starts a persistent MCP server over stdin/stdout, exposing all sem-ai
 commands as MCP tools. Config is loaded once at startup. Each tool call
 routes directly through the in-memory cobra tree, with no process spawn.
@@ -83,9 +88,20 @@ func runMCPServer() error {
 func eachToolLeaf(cmd *cobra.Command, prefix string, fn func(*cobra.Command, string)) {
 	for _, child := range cmd.Commands() {
 		name := child.Name()
-		// Skip non-tool commands and long-running commands that hold the mutex
+		// Skip non-tool commands and long-running commands that hold the mutex.
+		//
+		// signin and connect are onboarding commands that cannot work here.
+		// signin runs a device flow: it would hold executeMu for up to the grant
+		// TTL — measured, a `version` call queued behind one waited 30s — and its
+		// user code goes to a buffered stderr the human only sees once the call
+		// returns, by which time the code is spent. connect takes two positional
+		// arguments, and toolCLIArgs passes `args` as a single argv element, so
+		// it always fails validation ("accepts 2 arg(s), received 1"). Both are
+		// one CLI command away; advertising them as tools only produces wedged
+		// servers and arg errors.
 		if name == "mcp" || name == "help" || name == "completion" ||
-			name == "watch" || name == "promote-and-wait" {
+			name == "watch" || name == "promote-and-wait" ||
+			name == "signin" || name == "connect" {
 			continue
 		}
 
@@ -175,6 +191,17 @@ func toolCLIArgs(target *cobra.Command, args map[string]any) []string {
 		val, ok := args[f.Name]
 		if !ok || val == nil {
 			return
+		}
+
+		// An empty context is not a context. LLM clients routinely send "" for
+		// an optional string, and forwarding `--context ""` would overwrite the
+		// server-wide pin restored above with "no pin at all" — every such call
+		// silently falling back to the shared active-context. Other flags keep
+		// their empty-string meaning; only the selector is special.
+		if f.Name == "context" {
+			if sv, ok := val.(string); ok && sv == "" {
+				return
+			}
 		}
 
 		switch f.Value.Type() {

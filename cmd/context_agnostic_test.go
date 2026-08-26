@@ -286,3 +286,70 @@ func TestContextListNamesThePinnedRow(t *testing.T) {
 		}
 	}
 }
+
+// An empty context argument is what an LLM client sends for an optional string
+// it has nothing to say about. Forwarding it as `--context ""` cleared the
+// server-wide pin and sent that call to whatever the file's active context was.
+func TestEmptyContextArgumentDoesNotClearTheServerPin(t *testing.T) {
+	// cobra folds root's persistent flags into a leaf's flag set lazily, and
+	// buildMCPTool forces that merge before reading them. Without it here,
+	// `context` is simply absent from target.Flags() and both halves of this
+	// test would pass by describing nothing.
+	contextShowCmd.InheritedFlags()
+	if contextShowCmd.Flags().Lookup("context") == nil {
+		t.Fatal("context flag is not on the leaf's flag set; this test would prove nothing")
+	}
+
+	args := toolCLIArgs(contextShowCmd, map[string]any{"context": ""})
+	for _, a := range args {
+		if a == "--context" {
+			t.Fatalf("an empty context was forwarded as a flag: %v", args)
+		}
+	}
+
+	args = toolCLIArgs(contextShowCmd, map[string]any{"context": "named"})
+	found := false
+	for i := 0; i+1 < len(args); i++ {
+		if args[i] == "--context" && args[i+1] == "named" {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("a named context must still reach the command line, got %v", args)
+	}
+}
+
+// The onboarding commands are not MCP tools: signin would hold the execution
+// mutex for the whole device grant and print its user code into a buffer nobody
+// reads until the call returns, and connect's two positional arguments cannot
+// survive toolCLIArgs. Both are one CLI command away.
+func TestOnboardingCommandsAreNotMCPTools(t *testing.T) {
+	seen := map[string]bool{}
+	eachToolLeaf(rootCmd, "", func(_ *cobra.Command, name string) { seen[name] = true })
+
+	for _, name := range []string{"signin", "connect"} {
+		if seen[name] {
+			t.Errorf("%q is registered as an MCP tool", name)
+		}
+	}
+	// The rest of the surface is untouched.
+	for _, name := range []string{"context_show", "project_list"} {
+		if !seen[name] {
+			t.Errorf("%q should still be a tool", name)
+		}
+	}
+}
+
+// A server pinned to a context that does not exist yet must still start: that
+// is the "pin now, onboard after" case, and the server itself reads no config.
+func TestMCPCommandDoesNotResolveTheServerPin(t *testing.T) {
+	isolateConfigHome(t)
+
+	prev := contextFlag
+	t.Cleanup(func() { contextFlag = prev })
+	contextFlag = "not_created_yet"
+
+	if err := rootCmd.PersistentPreRunE(mcpCmd, nil); err != nil {
+		t.Fatalf("mcp must start under a pin it cannot resolve yet: %v", err)
+	}
+}
