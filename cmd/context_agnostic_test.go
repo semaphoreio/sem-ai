@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"bytes"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -11,6 +12,7 @@ import (
 
 	"github.com/semaphoreio/sem-ai/pkg/client"
 	"github.com/semaphoreio/sem-ai/pkg/config"
+	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 )
 
@@ -185,5 +187,102 @@ func TestIgnoreSelectorsDoesNotSurviveOneLoad(t *testing.T) {
 	}
 	if got := config.GetActiveContext(); got != "target" {
 		t.Errorf("active context = %q, want SEM_CONTEXT's %q — the ignore flag leaked past its invocation", got, "target")
+	}
+}
+
+// signin authenticates an account against a deployment; a context names an
+// organization. On Semaphore Cloud every org's account lives on the same host,
+// with the CLI-auth endpoints on another, so deriving signin's host from a
+// pinned org context posts the device flow somewhere that does not serve it.
+// The selector is ignored — and said out loud, because this flow can reset the
+// account's only API token.
+func TestSigninIgnoresSelectorsAndSaysSo(t *testing.T) {
+	isolateConfigHome(t, "cloudorg")
+
+	prev := contextFlag
+	t.Cleanup(func() { contextFlag = prev })
+	contextFlag = "cloudorg"
+	if err := rootCmd.PersistentPreRunE(signinCmd, nil); err != nil {
+		t.Fatalf("PersistentPreRunE: %v", err)
+	}
+
+	host, authHost, err := resolveSigninHosts(nil, "")
+	if err != nil {
+		t.Fatalf("resolveSigninHosts: %v", err)
+	}
+	if host != defaultSigninHost {
+		t.Errorf("host = %q, want the account host %q — a pinned org is not a signin target", host, defaultSigninHost)
+	}
+	if authHost != defaultSigninIDHost {
+		t.Errorf("authHost = %q, want %q — the device flow posts here", authHost, defaultSigninIDHost)
+	}
+
+	var stderr bytes.Buffer
+	probe := &cobra.Command{}
+	probe.SetErr(&stderr)
+	noteIgnoredSelector(probe, host)
+	if !strings.Contains(stderr.String(), "cloudorg") || !strings.Contains(stderr.String(), defaultSigninHost) {
+		t.Errorf("an ignored selector must be reported, got %q", stderr.String())
+	}
+
+	// Without a selector there is nothing to report.
+	contextFlag = ""
+	stderr.Reset()
+	noteIgnoredSelector(probe, host)
+	if stderr.Len() != 0 {
+		t.Errorf("unpinned signin must stay quiet, got %q", stderr.String())
+	}
+}
+
+// connect stores a token and moves active-context. A selector that resolves to
+// a different host means two organizations were named at once.
+func TestConnectRefusesASelectorThatContradictsItsHost(t *testing.T) {
+	isolateConfigHome(t, "other")
+
+	prev := contextFlag
+	t.Cleanup(func() { contextFlag = prev })
+	contextFlag = "other"
+
+	out, err := executeCobra([]string{"connect", "elsewhere.example.com", "tok", "--context", "other"})
+	if err == nil {
+		t.Fatalf("connect must refuse a pin naming a different host: %s", out)
+	}
+	if !strings.Contains(out, "connect_error") {
+		t.Errorf("want a connect_error explaining the contradiction, got: %s", out)
+	}
+}
+
+// The listing is the file's inventory, so `active` follows active-context — but
+// a pinned caller has to be able to tell which row this invocation is using.
+func TestContextListNamesThePinnedRow(t *testing.T) {
+	isolateConfigHome(t, "other")
+
+	prev := contextFlag
+	t.Cleanup(func() { contextFlag = prev })
+	contextFlag = "other"
+
+	out, err := executeCobra([]string{"context", "list", "--context", "other", "--format", "json"})
+	if err != nil {
+		t.Fatalf("context list: %v (%s)", err, out)
+	}
+
+	var rows []struct {
+		Name   string `json:"name"`
+		Active bool   `json:"active"`
+		Pinned bool   `json:"pinned"`
+	}
+	if err := json.Unmarshal([]byte(out), &rows); err != nil {
+		t.Fatalf("parse listing %q: %v", out, err)
+	}
+	for _, r := range rows {
+		if r.Name == "isolated" && !r.Active {
+			t.Error("active must follow the file's active-context")
+		}
+		if r.Name == "other" && !r.Pinned {
+			t.Error("the pinned row must say so, or a pinned caller is told the wrong org is live")
+		}
+		if r.Name == "isolated" && r.Pinned {
+			t.Error("only the pinned context may be marked pinned")
+		}
 	}
 }

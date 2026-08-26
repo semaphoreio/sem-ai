@@ -28,12 +28,16 @@ var contextListCmd = &cobra.Command{
 
 		// `active` is the file's own key, not what this invocation resolved:
 		// listing is the inventory of what is stored, and a pin is one
-		// invocation's business.
+		// invocation's business. But leaving it at that told a pinned caller
+		// that some other context is the live one while every other command ran
+		// against the pin, so the pinned row says so.
 		active := config.GetActiveContext()
+		pinned, _ := explicitSelector()
 		type row struct {
 			Name   string `json:"name" yaml:"name"`
 			Host   string `json:"host" yaml:"host"`
 			Active bool   `json:"active" yaml:"active"`
+			Pinned bool   `json:"pinned" yaml:"pinned"`
 		}
 		rows := make([]row, 0, len(contexts))
 		for _, c := range contexts {
@@ -41,6 +45,7 @@ var contextListCmd = &cobra.Command{
 				Name:   c.Name,
 				Host:   c.Host,
 				Active: c.Name == active,
+				Pinned: pinned != "" && c.Name == pinned,
 			})
 		}
 		output.Result(rows)

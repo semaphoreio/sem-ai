@@ -177,6 +177,28 @@ func resolveSigninHosts(args []string, idHost string) (host, authHost string, er
 	return host, authHost, nil
 }
 
+// noteIgnoredSelector says out loud that signin is not resolving the selector
+// this invocation carries.
+//
+// A context names an organization; signin authenticates an *account* against a
+// deployment, and on Semaphore Cloud every org's account lives on
+// me.semaphoreci.com with the CLI-auth endpoints on id.semaphoreci.com. Deriving
+// signin's host from a pinned org context therefore posts the device flow to a
+// host that does not serve it — and the plugin hook tells agents to export
+// SEM_CONTEXT, so that would break plain `sem-ai signin` for everyone who
+// followed the advice. The selector is ignored; pass [host] for another
+// deployment. Ignoring it silently is the part worth avoiding: this flow can
+// reset the account's only API token.
+func noteIgnoredSelector(cmd *cobra.Command, host string) {
+	name, source := explicitSelector()
+	if name == "" {
+		return
+	}
+	fmt.Fprintf(cmd.ErrOrStderr(),
+		"note: %s=%s selects an organization and does not apply to signin; authenticating against %s (pass [host] for another deployment)\n",
+		source, name, host)
+}
+
 var signinCmd = &cobra.Command{
 	Use:         "signin [host]",
 	Annotations: map[string]string{contextAgnostic: "true"},
@@ -224,6 +246,7 @@ is then made active.`,
 			output.Error("signin_error", err.Error(), 1)
 			return err
 		}
+		noteIgnoredSelector(cmd, host)
 
 		// Reject anything but a bare hostname before touching the network — a
 		// userinfo/scheme/path/port trick in [host], --id-host, or --org-host
