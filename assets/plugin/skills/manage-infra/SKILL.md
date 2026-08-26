@@ -45,8 +45,11 @@ sem-ai task run <id> --param KEY=VALUE [--param ...] \
 
 # Create with parameter definitions: bare NAME = required,
 # NAME=DEFAULT = optional with a default value.
+# The skip flags silence GitHub commit statuses for pipelines the task
+# starts on schedule / with "Run now" (reruns included).
 sem-ai task create <name> --branch main --file <path> [--cron "<expr>"] \
-  [--param-def NAME] [--param-def NAME=DEFAULT]
+  [--param-def NAME] [--param-def NAME=DEFAULT] \
+  [--skip-scheduled-run-notifications] [--skip-manual-run-notifications]
 ```
 
 ## Artifacts

@@ -45,7 +45,7 @@ func TestParseParamDefs(t *testing.T) {
 }
 
 func TestBuildScheduleYAMLWithParams(t *testing.T) {
-	yml := buildScheduleYAML("nightly", "my-app", "main", ".semaphore/nightly.yml", "0 2 * * *", []taskParamDef{
+	yml := buildScheduleYAML("nightly", "my-app", "main", ".semaphore/nightly.yml", "0 2 * * *", false, false, []taskParamDef{
 		{Name: "VERSION", Required: true},
 		{Name: "ENVIRONMENT", Required: false, DefaultValue: "staging"},
 	})
@@ -65,11 +65,38 @@ func TestBuildScheduleYAMLWithParams(t *testing.T) {
 }
 
 func TestBuildScheduleYAMLNoParams(t *testing.T) {
-	yml := buildScheduleYAML("oneoff", "my-app", "main", ".semaphore/run.yml", "", nil)
+	yml := buildScheduleYAML("oneoff", "my-app", "main", ".semaphore/run.yml", "", false, false, nil)
 	if strings.Contains(yml, "parameters:") {
 		t.Errorf("unexpected parameters block:\n%s", yml)
 	}
 	if !strings.Contains(yml, "recurring: false") {
 		t.Errorf("expected recurring: false:\n%s", yml)
+	}
+	// Unset flags must be omitted, not emitted as false: the v1.1 apply
+	// endpoint treats an omitted key as "no change".
+	if strings.Contains(yml, "skip_scheduled_run_notifications") ||
+		strings.Contains(yml, "skip_manual_run_notifications") {
+		t.Errorf("unexpected notification skip keys:\n%s", yml)
+	}
+}
+
+func TestBuildScheduleYAMLNotificationSkipFlags(t *testing.T) {
+	cases := []struct {
+		skipScheduled, skipManual bool
+	}{
+		{true, false},
+		{false, true},
+		{true, true},
+	}
+	for _, tc := range cases {
+		yml := buildScheduleYAML("quiet", "my-app", "main", ".semaphore/cron.yml", "0 2 * * *",
+			tc.skipScheduled, tc.skipManual, nil)
+
+		if got := strings.Contains(yml, "  skip_scheduled_run_notifications: true\n"); got != tc.skipScheduled {
+			t.Errorf("skipScheduled=%t: scheduled key present=%t:\n%s", tc.skipScheduled, got, yml)
+		}
+		if got := strings.Contains(yml, "  skip_manual_run_notifications: true\n"); got != tc.skipManual {
+			t.Errorf("skipManual=%t: manual key present=%t:\n%s", tc.skipManual, got, yml)
+		}
 	}
 }
