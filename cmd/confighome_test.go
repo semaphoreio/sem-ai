@@ -36,6 +36,7 @@ func isolateHome(t *testing.T) string {
 		// existed in this test's temp home, and config.Load starts failing.
 		contextFlag = ""
 		config.SetExplicitContext("")
+		config.IgnoreContextSelectors(false)
 	})
 	t.Setenv(config.EnvContext, "")
 

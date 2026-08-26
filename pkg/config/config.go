@@ -25,6 +25,13 @@ var cfg *Config
 // concurrent invocations can't flip each other's context via ~/.sem.yaml.
 var explicitContext string
 
+// selectorsIgnored drops both selectors for one invocation. `connect`,
+// `signin`, and `context switch` create or move the very contexts a selector
+// names, and `context list` reports the file's own state — none of them read
+// credentials through the pin, so resolving it would only let a name that does
+// not exist yet abort the command that was about to create it.
+var selectorsIgnored bool
+
 type Context struct {
 	Name string `json:"name"`
 	Host string `json:"host"`
@@ -38,14 +45,37 @@ type Config struct {
 
 func SetExplicitContext(name string) { explicitContext = name }
 
+// IgnoreContextSelectors makes the next Load skip --context and SEM_CONTEXT and
+// read the file's active-context instead. Load consumes it: the flag describes
+// one invocation, and leaving it set would make an exported selector vanish for
+// whatever called Load next — in the long-lived MCP server, every later tool
+// call.
+func IgnoreContextSelectors(v bool) { selectorsIgnored = v }
+
+// ContextHost returns the host stored for a named context, or "" if there is no
+// such context. Callers that must not resolve a selector still need to look one
+// up by name.
+func ContextHost(name string) string {
+	if name == "" {
+		return ""
+	}
+	return viper.GetString(fmt.Sprintf("contexts.%s.host", name))
+}
+
 func Load() error {
 	cfg = &Config{}
 
-	name := explicitContext
-	source := "--context"
-	if name == "" {
-		name = os.Getenv(EnvContext)
-		source = EnvContext
+	ignored := selectorsIgnored
+	selectorsIgnored = false
+
+	name, source := "", ""
+	if !ignored {
+		name = explicitContext
+		source = "--context"
+		if name == "" {
+			name = os.Getenv(EnvContext)
+			source = EnvContext
+		}
 	}
 	if name != "" {
 		token := viper.GetString(fmt.Sprintf("contexts.%s.auth.token", name))

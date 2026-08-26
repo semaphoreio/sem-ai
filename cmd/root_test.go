@@ -23,7 +23,7 @@ func TestInitConfigDropsStaleOverrides(t *testing.T) {
 
 	viper.Set("active-context", "stale-override")
 
-	if err := initConfig(); err != nil {
+	if err := initConfig(nil); err != nil {
 		t.Fatalf("initConfig: %v", err)
 	}
 	if got := viper.GetString("active-context"); got != "fromfile" {
@@ -38,7 +38,7 @@ func TestInitConfigReportsMalformedConfig(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	err := initConfig()
+	err := initConfig(nil)
 	if err == nil {
 		t.Fatal("initConfig must surface a malformed config instead of proceeding with empty credentials")
 	}

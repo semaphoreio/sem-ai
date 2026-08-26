@@ -73,7 +73,7 @@ var rootCmd = &cobra.Command{
 		// fail this one command, not the process: on the MCP surface every
 		// tool call re-enters here, so exiting would let one bad argument
 		// take down the server for every other session.
-		if err := initConfig(); err != nil {
+		if err := initConfig(cmd); err != nil {
 			output.Error("config_error", err.Error(), 1)
 			return err
 		}
@@ -148,11 +148,31 @@ func init() {
 	rootCmd.PersistentFlags().StringVar(&contextFlag, "context", "", "named context from ~/.sem.yaml to use for this invocation (overrides SEM_CONTEXT and the active context, read-only)")
 }
 
+// contextAgnostic marks a command that must not resolve --context/SEM_CONTEXT.
+// Set it on anything that writes ~/.sem.yaml's contexts or reports the file's
+// own state: a selector naming a context that does not exist yet would abort
+// the command that was about to create it, and the file's active-context is
+// what `context list`/`switch` are supposed to show.
+const contextAgnostic = "sem-ai:context-agnostic"
+
+// explicitSelector returns the context name this invocation names, and where it
+// came from, or "" — the flag first, then the env var, matching config.Load's
+// precedence. Commands exempt from resolving a selector still need to see one.
+func explicitSelector() (name, source string) {
+	if contextFlag != "" {
+		return contextFlag, "--context"
+	}
+	if v := os.Getenv(config.EnvContext); v != "" {
+		return v, config.EnvContext
+	}
+	return "", ""
+}
+
 // initConfig locates ~/.sem.yaml, reads it, and resolves the context this
 // invocation runs against. Called from PersistentPreRunE — after flag parsing,
 // so --context is populated — rather than from cobra.OnInitialize, which
-// cannot report a failure.
-func initConfig() error {
+// cannot report a failure. cmd may be nil.
+func initConfig(cmd *cobra.Command) error {
 	home, err := homedir.Dir()
 	if err != nil {
 		return fmt.Errorf("failed to find home directory: %w", err)
@@ -182,5 +202,6 @@ func initConfig() error {
 	}
 
 	config.SetExplicitContext(contextFlag)
+	config.IgnoreContextSelectors(cmd != nil && cmd.Annotations[contextAgnostic] == "true")
 	return config.Load()
 }

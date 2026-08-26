@@ -12,10 +12,11 @@ import (
 )
 
 var connectCmd = &cobra.Command{
-	Use:   "connect <host> <token>",
-	Short: "Connect to a Semaphore organization",
-	Args:  cobra.ExactArgs(2),
-	Example: `  sem-ai connect myorg.semaphoreci.com YOUR_API_TOKEN`,
+	Use:         "connect <host> <token>",
+	Short:       "Connect to a Semaphore organization",
+	Args:        cobra.ExactArgs(2),
+	Annotations: map[string]string{contextAgnostic: "true"},
+	Example:     `  sem-ai connect myorg.semaphoreci.com YOUR_API_TOKEN`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		host := args[0]
 		token := args[1]

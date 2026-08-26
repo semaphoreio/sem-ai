@@ -178,9 +178,10 @@ func resolveSigninHosts(args []string, idHost string) (host, authHost string, er
 }
 
 var signinCmd = &cobra.Command{
-	Use:     "signin [host]",
-	Aliases: []string{"signup", "login"},
-	Short:   "Sign in to Semaphore (creating an account if needed) and save an API token",
+	Use:         "signin [host]",
+	Annotations: map[string]string{contextAgnostic: "true"},
+	Aliases:     []string{"signup", "login"},
+	Short:       "Sign in to Semaphore (creating an account if needed) and save an API token",
 	Long: `Sign in to Semaphore and store the account API token.
 
 Shows a one-time code and a verification URL (opening your browser when one is
@@ -207,6 +208,13 @@ is then made active.`,
   sem-ai signin me.semaphoreci.com --id-host id.semaphoreci.com
   sem-ai signup my-onprem.example.com --org myorg --org-host myorg.example.com`,
 	RunE: func(cmd *cobra.Command, args []string) error {
+		// signin does not read credentials through a selector — it creates the
+		// context — but a selector still says which deployment the caller means,
+		// and this flow can RESET the account's only API token. Defaulting to
+		// Semaphore Cloud while the caller named another context would reset the
+		// wrong account's token. So a selector that resolves supplies the host,
+		// and one that does not (the org being onboarded has no context yet) is
+		// ignored.
 		// Resolve where the token is stored (host) and which host serves the
 		// CLI-auth endpoints (authHost), applying the Semaphore Cloud defaults.
 		// Also rejects --id-host without an explicit [host], before any network

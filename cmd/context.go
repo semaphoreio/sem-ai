@@ -15,9 +15,10 @@ var contextCmd = &cobra.Command{
 }
 
 var contextListCmd = &cobra.Command{
-	Use:     "list",
-	Short:   "List all configured contexts",
-	Example: "  sem-ai context list\n  sem-ai context list --format table",
+	Use:         "list",
+	Short:       "List all configured contexts",
+	Example:     "  sem-ai context list\n  sem-ai context list --format table",
+	Annotations: map[string]string{contextAgnostic: "true"},
 	RunE: func(cmd *cobra.Command, args []string) error {
 		contexts, err := config.ContextList()
 		if err != nil {
@@ -25,6 +26,9 @@ var contextListCmd = &cobra.Command{
 			return err
 		}
 
+		// `active` is the file's own key, not what this invocation resolved:
+		// listing is the inventory of what is stored, and a pin is one
+		// invocation's business.
 		active := config.GetActiveContext()
 		type row struct {
 			Name   string `json:"name" yaml:"name"`
@@ -58,9 +62,10 @@ var contextShowCmd = &cobra.Command{
 }
 
 var contextSwitchCmd = &cobra.Command{
-	Use:   "switch [name-or-number]",
-	Short: "Switch active context",
-	Args:  cobra.MaximumNArgs(1),
+	Use:         "switch [name-or-number]",
+	Short:       "Switch active context",
+	Annotations: map[string]string{contextAgnostic: "true"},
+	Args:        cobra.MaximumNArgs(1),
 	Example: `  sem-ai context switch
   sem-ai context switch myorg_semaphoreci_com
   sem-ai context switch 1`,
@@ -119,6 +124,11 @@ var contextSwitchCmd = &cobra.Command{
 			output.Error("config_error", err.Error(), 1)
 			return err
 		}
+		// Re-read so the reported host comes from the context just made active.
+		// This command is context-agnostic, and Load consumes that setting per
+		// call, so say it again for this second read — otherwise a pinned
+		// invocation fails here after having already written the file.
+		config.IgnoreContextSelectors(true)
 		if err := config.Load(); err != nil {
 			output.Error("config_error", err.Error(), 1)
 			return err
