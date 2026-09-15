@@ -196,17 +196,29 @@ func buildMCPHandler(target *cobra.Command) server.ToolHandlerFunc {
 // resetFlags resets all flag values in the command tree to their defaults.
 // This prevents flag state from bleeding between MCP tool calls.
 func resetFlags(cmd *cobra.Command) {
-	cmd.Flags().VisitAll(func(f *pflag.Flag) {
-		f.Value.Set(f.DefValue)
-		f.Changed = false
-	})
-	cmd.PersistentFlags().VisitAll(func(f *pflag.Flag) {
-		f.Value.Set(f.DefValue)
-		f.Changed = false
-	})
+	cmd.Flags().VisitAll(resetFlag)
+	cmd.PersistentFlags().VisitAll(resetFlag)
 	for _, child := range cmd.Commands() {
 		resetFlags(child)
 	}
+}
+
+// resetFlag restores one flag to its default.
+//
+// Slice flags need Replace rather than Set. pflag's slice values carry their
+// own "has been set" latch and append on every Set after the first, and the
+// DefValue of an empty slice flag is the literal string "[]" — so Set(DefValue)
+// pushes "[]" onto the slice instead of clearing it, once per MCP tool call.
+// Every slice flag in this tree defaults to nil (asserted by
+// TestSliceFlagsDefaultToEmpty), which is what makes Replace(nil) an exact
+// reset rather than an approximation.
+func resetFlag(f *pflag.Flag) {
+	if sv, ok := f.Value.(pflag.SliceValue); ok {
+		sv.Replace(nil)
+	} else {
+		f.Value.Set(f.DefValue)
+	}
+	f.Changed = false
 }
 
 // executeCobra runs rootCmd with given args, capturing output via SetOut/SetErr.

@@ -13,7 +13,6 @@ global_job_config:
     commands:
       - checkout
       - sem-version go 1.25.5
-      - go clean -cache
       - go version
 
 blocks:

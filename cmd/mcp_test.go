@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 
@@ -65,6 +66,9 @@ func TestResetFlagsAllTypes(t *testing.T) {
 	tags := child.Flags().Lookup("tags")
 	if tags.Changed {
 		t.Error("tags.Changed should be false after reset")
+	}
+	if got := tags.Value.String(); got != "[]" {
+		t.Errorf("tags = %s, want empty", got)
 	}
 }
 
@@ -213,5 +217,68 @@ func TestExtractArgsDescription(t *testing.T) {
 		if !tc.want && desc != "" {
 			t.Errorf("Use=%q: expected empty, got %q", tc.use, desc)
 		}
+	}
+}
+
+// pflag's slice values append on every Set after the first, and an empty
+// slice flag's DefValue is the literal "[]". Resetting with Set therefore
+// grew every slice flag by one bogus "[]" entry per MCP tool call — job_list
+// went out as ?states=[]&states=[] and so on for the life of the server.
+func TestResetFlagsClearsSliceValuesAcrossCalls(t *testing.T) {
+	target, _, err := rootCmd.Find([]string{"job", "list"})
+	if err != nil {
+		t.Fatalf("find job list: %v", err)
+	}
+	states := target.Flags().Lookup("states")
+	if states == nil {
+		t.Fatal("job list has no --states flag")
+	}
+
+	for call := 1; call <= 3; call++ {
+		resetFlags(rootCmd)
+		if got := states.Value.String(); got != "[]" {
+			t.Fatalf("after reset #%d: states = %s, want empty", call, got)
+		}
+	}
+
+	// A reset flag must still accumulate normally once the next call sets it.
+	states.Value.Set("RUNNING")
+	states.Value.Set("QUEUED")
+	if got := states.Value.String(); got != "[RUNNING,QUEUED]" {
+		t.Errorf("states = %s, want [RUNNING,QUEUED]", got)
+	}
+	resetFlags(rootCmd)
+	if got := states.Value.String(); got != "[]" {
+		t.Errorf("after reset: states = %s, want empty", got)
+	}
+}
+
+// resetFlag clears slice flags with Replace(nil) instead of restoring
+// DefValue. That is only an exact reset while every slice flag defaults to
+// empty. Adding one with a real default should fail here, not silently lose it.
+func TestSliceFlagsDefaultToEmpty(t *testing.T) {
+	var offenders []string
+
+	check := func(cmd *cobra.Command, f *pflag.Flag) {
+		if _, ok := f.Value.(pflag.SliceValue); !ok {
+			return
+		}
+		if f.DefValue != "[]" {
+			offenders = append(offenders, fmt.Sprintf("%s --%s (default %s)", cmd.CommandPath(), f.Name, f.DefValue))
+		}
+	}
+
+	var walk func(*cobra.Command)
+	walk = func(cmd *cobra.Command) {
+		cmd.Flags().VisitAll(func(f *pflag.Flag) { check(cmd, f) })
+		cmd.PersistentFlags().VisitAll(func(f *pflag.Flag) { check(cmd, f) })
+		for _, child := range cmd.Commands() {
+			walk(child)
+		}
+	}
+	walk(rootCmd)
+
+	if len(offenders) > 0 {
+		t.Errorf("slice flags with non-empty defaults: %v\nresetFlag clears these to empty — teach it to restore the default first", offenders)
 	}
 }
