@@ -339,6 +339,36 @@ sem-ai context list                               # list all orgs
 sem-ai context show                               # show active org
 ```
 
+### Pinning a context per invocation
+
+`context switch` writes the shared `active-context` key in `~/.sem.yaml`, so concurrent sessions (e.g. multiple agents on one machine) can flip each other's context mid-run. To pin a context without touching the file, pass `--context` on any command or set `SEM_CONTEXT`:
+
+```shell
+sem-ai --context myorg_semaphoreci_com project list   # this invocation only
+export SEM_CONTEXT=myorg_semaphoreci_com              # every later call in this shell
+```
+
+Resolution precedence:
+
+1. `--context` flag (named context, read-only)
+2. `SEM_CONTEXT` env (named context, read-only)
+3. `SEMAPHORE_HOST` / `SEMAPHORE_API_TOKEN` env (raw credentials, no config file needed)
+4. `active-context` from `~/.sem.yaml`
+
+An explicit selector (1 or 2) fully shadows everything below it — no mixing of context credentials with env credentials. Without a selector, the raw env vars override the active context's values field by field.
+
+An unknown context name fails hard and lists the available contexts — except on the commands that create or report that state. `connect`, `signin`, `context switch`, and `context list` ignore both selectors: a pin naming a context that does not exist yet must not stop the command about to create it, and `context list`/`switch` report what `~/.sem.yaml` stores, so their active marking follows the file. `context show` reports what the current invocation resolves to, pin included, and each `context list` row carries `pinned` so a pinned caller can tell which one it is actually using.
+
+The selector is ignored on those commands, not applied to them: `connect` names the context it creates after its host (dots become underscores), so `SEM_CONTEXT=neworg sem-ai connect neworg.semaphoreci.com TOKEN` creates `neworg_semaphoreci_com` and leaves the pin pointing at a name that still does not exist. Onboarding then means updating the pin to the created name. Where `connect` is given both a `<host>` and a selector that resolves to a *different* host, it refuses rather than picking one — it stores a token and moves `active-context`, so a two-organization invocation is a mistake worth failing.
+
+`signin` ignores the selector too, and says so on stderr. A context names an organization; `signin` authenticates an *account* against a deployment, and on Semaphore Cloud every organization's account lives on `me.semaphoreci.com` with the CLI-auth endpoints on `id.semaphoreci.com`. Taking signin's host from a pinned organization context would post the device flow to a host that does not serve it. Pass `[host]` for another deployment.
+
+Neither `connect` nor `signin` is exposed over MCP. `signin` runs a device flow that would hold the server's execution lock for the life of the grant and print its one-time code into a buffer the human only sees once the call returns; `connect` takes two positional arguments, which the tool-argument encoding cannot carry. Onboard on the command line, then point the MCP server at the context it created.
+
+This pins the *read* path: no selector changes `active-context` or any stored credential. (Any invocation still creates an empty `~/.sem.yaml` when none exists.) `context switch`, `connect`, and `signin` still write it, and `active-context` stays a shared key; pinning is how a session opts out of reading it.
+
+Writes replace the file through a temp file plus `rename(2)` (which needs a writable *directory*, so a config file deliberately made read-only is replaced rather than refused, and comes back `0600`), so a concurrent reader sees either the old config or the new one, never a half-written file. That is torn-read protection only: each write serializes the whole config as the writing process last read it, so two writes that overlap are last-writer-wins for the *entire file* — a context added by one can disappear when the other lands. Sequence commands that write, or let one session own the file. (The atomic path covers YAML; if viper picked up a non-YAML `~/.sem.json`, that write is still in-place.)
+
 ## Development
 
 ```shell

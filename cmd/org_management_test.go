@@ -69,7 +69,13 @@ func apiMock(t *testing.T, handler http.HandlerFunc) (reqs *[]capturedReq, stdou
 
 	t.Setenv("SEMAPHORE_API_TOKEN", "test-token")
 	t.Setenv("SEMAPHORE_HOST", "example.test")
-	config.Load()
+	// A SEM_CONTEXT exported in the shell selects a named context instead, and
+	// one that does not exist in the developer's ~/.sem.yaml makes Load fail —
+	// leaving every apiMock-based test running with empty credentials.
+	t.Setenv(config.EnvContext, "")
+	if err := config.Load(); err != nil {
+		t.Fatalf("config.Load: %v", err)
+	}
 
 	var out, errb bytes.Buffer
 	output.SetWriters(&out, &errb)

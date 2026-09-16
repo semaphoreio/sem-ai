@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/semaphoreio/sem-ai/pkg/client"
+	"github.com/semaphoreio/sem-ai/pkg/config"
 	"github.com/semaphoreio/sem-ai/pkg/output"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
@@ -176,10 +177,33 @@ func resolveSigninHosts(args []string, idHost string) (host, authHost string, er
 	return host, authHost, nil
 }
 
+// noteIgnoredSelector says out loud that signin is not resolving the selector
+// this invocation carries.
+//
+// A context names an organization; signin authenticates an *account* against a
+// deployment, and on Semaphore Cloud every org's account lives on
+// me.semaphoreci.com with the CLI-auth endpoints on id.semaphoreci.com. Deriving
+// signin's host from a pinned org context therefore posts the device flow to a
+// host that does not serve it — and the plugin hook tells agents to export
+// SEM_CONTEXT, so that would break plain `sem-ai signin` for everyone who
+// followed the advice. The selector is ignored; pass [host] for another
+// deployment. Ignoring it silently is the part worth avoiding: this flow can
+// reset the account's only API token.
+func noteIgnoredSelector(cmd *cobra.Command, host string) {
+	name, source := explicitSelector()
+	if name == "" {
+		return
+	}
+	fmt.Fprintf(cmd.ErrOrStderr(),
+		"note: %s=%s selects an organization and does not apply to signin; authenticating against %s (pass [host] for another deployment)\n",
+		source, name, host)
+}
+
 var signinCmd = &cobra.Command{
-	Use:     "signin [host]",
-	Aliases: []string{"signup", "login"},
-	Short:   "Sign in to Semaphore (creating an account if needed) and save an API token",
+	Use:         "signin [host]",
+	Annotations: map[string]string{contextAgnostic: "true"},
+	Aliases:     []string{"signup", "login"},
+	Short:       "Sign in to Semaphore (creating an account if needed) and save an API token",
 	Long: `Sign in to Semaphore and store the account API token.
 
 Shows a one-time code and a verification URL (opening your browser when one is
@@ -206,6 +230,13 @@ is then made active.`,
   sem-ai signin me.semaphoreci.com --id-host id.semaphoreci.com
   sem-ai signup my-onprem.example.com --org myorg --org-host myorg.example.com`,
 	RunE: func(cmd *cobra.Command, args []string) error {
+		// signin does not read credentials through a selector — it creates the
+		// context — but a selector still says which deployment the caller means,
+		// and this flow can RESET the account's only API token. Defaulting to
+		// Semaphore Cloud while the caller named another context would reset the
+		// wrong account's token. So a selector that resolves supplies the host,
+		// and one that does not (the org being onboarded has no context yet) is
+		// ignored.
 		// Resolve where the token is stored (host) and which host serves the
 		// CLI-auth endpoints (authHost), applying the Semaphore Cloud defaults.
 		// Also rejects --id-host without an explicit [host], before any network
@@ -215,6 +246,7 @@ is then made active.`,
 			output.Error("signin_error", err.Error(), 1)
 			return err
 		}
+		noteIgnoredSelector(cmd, host)
 
 		// Reject anything but a bare hostname before touching the network — a
 		// userinfo/scheme/path/port trick in [host], --id-host, or --org-host
@@ -501,9 +533,9 @@ func runDeviceFlow(c *cliAuthClient, w io.Writer, sleep func(time.Duration), att
 
 // ── shared helpers ───────────────────────────────────────────────────────────
 
-// writeContext persists a token/host into ~/.sem.yaml — same shape as `connect`
-// — optionally activating it, and enforces 0600 permissions on the config file
-// (it holds a secret). It returns the context name it wrote to.
+// writeContext persists a token/host into ~/.sem.yaml — same shape and same
+// atomic config.Write as `connect` (temp file + rename, 0600 since it holds a
+// secret) — optionally activating it. It returns the context name it wrote to.
 func writeContext(host, token string, active bool) (string, error) {
 	name := strings.ReplaceAll(host, ".", "_")
 	if active {
@@ -511,11 +543,8 @@ func writeContext(host, token string, active bool) (string, error) {
 	}
 	viper.Set(fmt.Sprintf("contexts.%s.auth.token", name), token)
 	viper.Set(fmt.Sprintf("contexts.%s.host", name), host)
-	if err := viper.WriteConfig(); err != nil {
+	if err := config.Write(); err != nil {
 		return name, err
-	}
-	if path := viper.ConfigFileUsed(); path != "" {
-		_ = os.Chmod(path, 0600)
 	}
 	return name, nil
 }

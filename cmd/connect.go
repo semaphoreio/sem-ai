@@ -5,19 +5,35 @@ import (
 	"strings"
 
 	"github.com/semaphoreio/sem-ai/pkg/client"
+	"github.com/semaphoreio/sem-ai/pkg/config"
 	"github.com/semaphoreio/sem-ai/pkg/output"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 )
 
 var connectCmd = &cobra.Command{
-	Use:   "connect <host> <token>",
-	Short: "Connect to a Semaphore organization",
-	Args:  cobra.ExactArgs(2),
-	Example: `  sem-ai connect myorg.semaphoreci.com YOUR_API_TOKEN`,
+	Use:         "connect <host> <token>",
+	Short:       "Connect to a Semaphore organization",
+	Args:        cobra.ExactArgs(2),
+	Annotations: map[string]string{contextAgnostic: "true"},
+	Example:     `  sem-ai connect myorg.semaphoreci.com YOUR_API_TOKEN`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		host := args[0]
 		token := args[1]
+
+		// connect names the context after <host>, so a selector has nothing to
+		// resolve here and is ignored — that is what lets an agent pin the org
+		// it is onboarding. But a selector that *does* resolve, to a different
+		// host, means the caller named two organizations at once, and this
+		// command both stores a token and moves active-context. Refuse rather
+		// than pick one.
+		if name, source := explicitSelector(); name != "" {
+			if pinned := config.ContextHost(name); pinned != "" && pinned != host {
+				err := fmt.Errorf("context %q (from %s) is %s, but <host> says %s — pass one or the other", name, source, pinned, host)
+				output.Error("connect_error", err.Error(), 1)
+				return err
+			}
+		}
 
 		// Verify connection
 		c := client.NewWithConfig(token, host)
@@ -36,7 +52,7 @@ var connectCmd = &cobra.Command{
 		viper.Set("active-context", name)
 		viper.Set(fmt.Sprintf("contexts.%s.auth.token", name), token)
 		viper.Set(fmt.Sprintf("contexts.%s.host", name), host)
-		if err := viper.WriteConfig(); err != nil {
+		if err := config.Write(); err != nil {
 			output.Error("config_error", fmt.Sprintf("failed to write config: %s", err), 1)
 			return err
 		}

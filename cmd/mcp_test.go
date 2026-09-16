@@ -109,6 +109,7 @@ func TestResetFlagsFullTreeClean(t *testing.T) {
 }
 
 func TestExecuteCobraVersion(t *testing.T) {
+	isolateConfigHome(t)
 	result, err := executeCobra([]string{"version"})
 	if err != nil {
 		t.Fatalf("error: %v", err)
@@ -119,6 +120,7 @@ func TestExecuteCobraVersion(t *testing.T) {
 }
 
 func TestExecuteCobraUnknownCommand(t *testing.T) {
+	isolateConfigHome(t)
 	result, err := executeCobra([]string{"nonexistent-xyz"})
 	if err == nil {
 		t.Error("expected error for unknown command")
@@ -129,6 +131,7 @@ func TestExecuteCobraUnknownCommand(t *testing.T) {
 }
 
 func TestExecuteCobraFlagBleed(t *testing.T) {
+	isolateConfigHome(t)
 	// Call 1: YAML format
 	r1, err := executeCobra([]string{"version", "--format", "yaml"})
 	if err != nil {
@@ -153,6 +156,7 @@ func TestExecuteCobraFlagBleed(t *testing.T) {
 }
 
 func TestExecuteCobraStringFlagBleed(t *testing.T) {
+	isolateConfigHome(t)
 	// Call 1: set --project on workflow list (will fail, that's fine)
 	executeCobra([]string{"workflow", "list", "--project", "proj-alpha"})
 
@@ -220,6 +224,84 @@ func TestExtractArgsDescription(t *testing.T) {
 	}
 }
 
+// Regression guard: cobra merges a parent's persistent flags into
+// cmd.Flags() lazily, at ParseFlags time. Tool schemas are built before any
+// leaf has parsed, so --context was absent from all 86 tool schemas until
+// buildMCPTool forced the merge.
+func TestMCPToolsExposeRootPersistentContextFlag(t *testing.T) {
+	var missing []string
+	eachToolLeaf(rootCmd, "", func(leaf *cobra.Command, toolName string) {
+		tool := buildMCPTool(leaf, toolName)
+		if _, ok := tool.InputSchema.Properties["context"]; !ok {
+			missing = append(missing, toolName)
+		}
+	})
+
+	if len(missing) > 0 {
+		t.Errorf("%d tool(s) missing the context parameter: %v", len(missing), missing)
+	}
+}
+
+// The denylist keeps the other root persistent flags out of tool schemas —
+// forcing the persistent-flag merge must not leak them in.
+func TestMCPToolSchemaOmitsDeniedFlags(t *testing.T) {
+	target, _, err := rootCmd.Find([]string{"project", "list"})
+	if err != nil {
+		t.Fatalf("find project list: %v", err)
+	}
+	tool := buildMCPTool(target, "project_list")
+
+	for _, denied := range []string{"format", "verbose", "examples", "help"} {
+		if _, ok := tool.InputSchema.Properties[denied]; ok {
+			t.Errorf("tool schema exposes %q, want it filtered out", denied)
+		}
+	}
+}
+
+// Exposing --context in the schema is only half of it — the handler has to
+// put it back on the command line.
+func TestToolCLIArgsPassesContext(t *testing.T) {
+	target, _, err := rootCmd.Find([]string{"project", "list"})
+	if err != nil {
+		t.Fatalf("find project list: %v", err)
+	}
+	buildMCPTool(target, "project_list") // registration merges the flag sets
+
+	got := toolCLIArgs(target, map[string]any{"context": "acme"})
+
+	if !containsPair(got, "--context", "acme") {
+		t.Errorf("argv = %v, want it to carry --context acme", got)
+	}
+}
+
+func TestToolCLIArgsOmitsUnsetContext(t *testing.T) {
+	target, _, err := rootCmd.Find([]string{"project", "list"})
+	if err != nil {
+		t.Fatalf("find project list: %v", err)
+	}
+	buildMCPTool(target, "project_list")
+
+	for _, got := range [][]string{
+		toolCLIArgs(target, map[string]any{}),
+		toolCLIArgs(target, map[string]any{"context": nil}),
+	} {
+		for _, a := range got {
+			if a == "--context" {
+				t.Errorf("argv = %v, want no --context when the caller sent none", got)
+			}
+		}
+	}
+}
+
+func containsPair(args []string, flag, value string) bool {
+	for i := 0; i < len(args)-1; i++ {
+		if args[i] == flag && args[i+1] == value {
+			return true
+		}
+	}
+	return false
+}
+
 // pflag's slice values append on every Set after the first, and an empty
 // slice flag's DefValue is the literal "[]". Resetting with Set therefore
 // grew every slice flag by one bogus "[]" entry per MCP tool call — job_list
@@ -280,5 +362,38 @@ func TestSliceFlagsDefaultToEmpty(t *testing.T) {
 
 	if len(offenders) > 0 {
 		t.Errorf("slice flags with non-empty defaults: %v\nresetFlag clears these to empty — teach it to restore the default first", offenders)
+	}
+}
+
+// `sem-ai mcp --context X` is a server-wide pin. resetFlags clears every root
+// persistent flag before each tool call, so without restoring it the pin was
+// dropped on the first call and every unpinned call silently fell back to the
+// shared active-context — the exact clobber --context exists to avoid.
+func TestExecuteCobraKeepsServerContextPin(t *testing.T) {
+	isolateConfigHome(t, "pinned", "percall")
+	prev := mcpBaseContext
+	t.Cleanup(func() { mcpBaseContext, contextFlag = prev, "" })
+
+	mcpBaseContext = "pinned"
+
+	if _, err := executeCobra([]string{"version"}); err != nil {
+		t.Fatalf("version under a pinned server: %v", err)
+	}
+	if contextFlag != "pinned" {
+		t.Errorf("contextFlag = %q after an unpinned tool call, want the server pin %q", contextFlag, "pinned")
+	}
+
+	if _, err := executeCobra([]string{"version", "--context", "percall"}); err != nil {
+		t.Fatalf("version with a per-call context: %v", err)
+	}
+	if contextFlag != "percall" {
+		t.Errorf("contextFlag = %q, want the per-call argument %q to win over the server pin", contextFlag, "percall")
+	}
+
+	if _, err := executeCobra([]string{"version"}); err != nil {
+		t.Fatalf("version after a per-call context: %v", err)
+	}
+	if contextFlag != "pinned" {
+		t.Errorf("contextFlag = %q, want the server pin %q back after a per-call override", contextFlag, "pinned")
 	}
 }
