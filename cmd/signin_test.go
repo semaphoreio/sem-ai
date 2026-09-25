@@ -12,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/semaphoreio/sem-ai/pkg/client"
 	"github.com/semaphoreio/sem-ai/pkg/output"
 	"github.com/spf13/viper"
 )
@@ -876,24 +877,227 @@ func TestFinishSignin_RotatedSkipsOrg(t *testing.T) {
 	}
 }
 
-// TestFinishSignin_NoOrgSavesAccount: the plain path (no --org) saves the
-// account context and activates it, for both minted and rotated sign-ins.
-func TestFinishSignin_NoOrgSavesAccount(t *testing.T) {
+// ── finishSignin: no --org populates org contexts ────────────────────────────
+
+// newOrgListServer serves GET /api/v1alpha/organizations with a fixed
+// status/body and records the last request's method, path, and auth header.
+// pkg/client is pointed at it via SetBaseURLForTest.
+func newOrgListServer(t *testing.T, status int, body string) *orgListCapture {
+	t.Helper()
+	cap := &orgListCapture{}
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		atomic.AddInt64(&cap.calls, 1)
+		cap.method = r.Method
+		cap.path = r.URL.Path
+		cap.auth = r.Header.Get("Authorization")
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(status)
+		_, _ = io.WriteString(w, body)
+	}))
+	t.Cleanup(srv.Close)
+
+	client.SetBaseURLForTest(srv.URL)
+	t.Cleanup(func() { client.SetBaseURLForTest("") })
+	return cap
+}
+
+type orgListCapture struct {
+	calls  int64
+	method string
+	path   string
+	auth   string
+}
+
+// TestFinishSignin_NoOrg_OneOrg: the plain path (no --org) now lists the user's
+// orgs and activates the sole org context (host <username>.<domain>), NOT the
+// account host. Covers the operately CEO 401 case (rotated = existing account).
+func TestFinishSignin_NoOrg_OneOrg(t *testing.T) {
 	for _, action := range []string{"minted", "rotated", ""} {
 		t.Run("action="+action, func(t *testing.T) {
 			setupConfig(t)
+			cap := newOrgListServer(t, 200,
+				`[{"organization_id":"org-1","name":"Acme","username":"acme","created_at":"2024-01-01T00:00:00Z"}]`)
 
 			tok := &tokenResp{Token: "acct-token", TokenAction: action}
-			err := finishSignin(tok, "me.example.com", "", "", nil, "", io.Discard)
-			if err != nil {
+			if err := finishSignin(tok, "me.example.com", "", "", nil, "", io.Discard); err != nil {
 				t.Fatalf("finishSignin: %v", err)
 			}
-			if got := viper.GetString("active-context"); got != "me_example_com" {
-				t.Errorf("active-context = %q, want me_example_com", got)
+
+			// The org list endpoint was called with the account token.
+			if got := atomic.LoadInt64(&cap.calls); got != 1 {
+				t.Errorf("org-list calls = %d, want 1", got)
 			}
+			if cap.method != "GET" || cap.path != "/api/v1alpha/organizations" {
+				t.Errorf("request = %s %s, want GET /api/v1alpha/organizations", cap.method, cap.path)
+			}
+			if cap.auth != "Token acct-token" {
+				t.Errorf("Authorization = %q, want \"Token acct-token\"", cap.auth)
+			}
+
+			// Active context is the ORG host, not me.* — this is the fix.
+			if got := viper.GetString("active-context"); got != "acme_example_com" {
+				t.Errorf("active-context = %q, want acme_example_com", got)
+			}
+			if got := viper.GetString("contexts.acme_example_com.host"); got != "acme.example.com" {
+				t.Errorf("org host = %q, want acme.example.com", got)
+			}
+			if got := viper.GetString("contexts.acme_example_com.auth.token"); got != "acct-token" {
+				t.Errorf("org token = %q, want acct-token (account token reused)", got)
+			}
+			// The account context is still saved (as the token's home).
 			if got := viper.GetString("contexts.me_example_com.auth.token"); got != "acct-token" {
 				t.Errorf("account token = %q, want acct-token", got)
 			}
 		})
+	}
+}
+
+// TestFinishSignin_NoOrg_MultipleOrgs: all org contexts are written and the
+// most-recently-created one is activated, with a switch hint printed.
+func TestFinishSignin_NoOrg_MultipleOrgs(t *testing.T) {
+	setupConfig(t)
+	newOrgListServer(t, 200, `[
+		{"organization_id":"org-old","name":"Old","username":"old","created_at":"2020-01-01T00:00:00Z"},
+		{"organization_id":"org-new","name":"New","username":"new","created_at":"2024-06-01T00:00:00Z"}
+	]`)
+
+	var note strings.Builder
+	tok := &tokenResp{Token: "acct-token", TokenAction: "rotated"}
+	if err := finishSignin(tok, "me.example.com", "", "", nil, "", &note); err != nil {
+		t.Fatalf("finishSignin: %v", err)
+	}
+
+	// Both org contexts exist.
+	if got := viper.GetString("contexts.old_example_com.host"); got != "old.example.com" {
+		t.Errorf("old org host = %q, want old.example.com", got)
+	}
+	if got := viper.GetString("contexts.new_example_com.host"); got != "new.example.com" {
+		t.Errorf("new org host = %q, want new.example.com", got)
+	}
+	// The most-recently-created org is active.
+	if got := viper.GetString("active-context"); got != "new_example_com" {
+		t.Errorf("active-context = %q, want new_example_com (most recent)", got)
+	}
+	// The user is told how to switch.
+	if !strings.Contains(note.String(), "context switch") {
+		t.Errorf("expected a switch hint, got: %q", note.String())
+	}
+}
+
+// TestFinishSignin_NoOrg_ReSigninKeepsActiveContext: on a re-signin (a context
+// for one of the account's orgs is already active), a no-org signin must NOT
+// switch the active context to the most-recently-created org. It refreshes
+// every org's token but leaves the active org exactly where the user had it.
+func TestFinishSignin_NoOrg_ReSigninKeepsActiveContext(t *testing.T) {
+	setupConfig(t)
+
+	// Pre-existing state: the user was already active on the OLDER org with a
+	// stale token, as a prior signin would have left it.
+	if _, err := writeContext("old.example.com", "stale-token", true); err != nil {
+		t.Fatal(err)
+	}
+	if got := viper.GetString("active-context"); got != "old_example_com" {
+		t.Fatalf("precondition: active-context = %q, want old_example_com", got)
+	}
+
+	newOrgListServer(t, 200, `[
+		{"organization_id":"org-old","name":"Old","username":"old","created_at":"2020-01-01T00:00:00Z"},
+		{"organization_id":"org-new","name":"New","username":"new","created_at":"2024-06-01T00:00:00Z"}
+	]`)
+
+	var note strings.Builder
+	tok := &tokenResp{Token: "acct-token", TokenAction: "rotated"}
+	if err := finishSignin(tok, "me.example.com", "", "", nil, "", &note); err != nil {
+		t.Fatalf("finishSignin: %v", err)
+	}
+
+	// The active context is UNCHANGED — still the older org, NOT retargeted to
+	// the most-recently-created one. This is the fix.
+	if got := viper.GetString("active-context"); got != "old_example_com" {
+		t.Errorf("active-context = %q, want old_example_com (re-signin must not switch)", got)
+	}
+	// Both org contexts exist and their tokens were refreshed to the new one.
+	if got := viper.GetString("contexts.old_example_com.auth.token"); got != "acct-token" {
+		t.Errorf("old org token = %q, want acct-token (refreshed on re-auth)", got)
+	}
+	if got := viper.GetString("contexts.new_example_com.auth.token"); got != "acct-token" {
+		t.Errorf("new org token = %q, want acct-token", got)
+	}
+	if got := viper.GetString("contexts.new_example_com.host"); got != "new.example.com" {
+		t.Errorf("new org host = %q, want new.example.com", got)
+	}
+	// The user is told the active context was left alone.
+	if !strings.Contains(note.String(), "unchanged") {
+		t.Errorf("expected a note that the active context was kept, got: %q", note.String())
+	}
+}
+
+// TestFinishSignin_NoOrg_ZeroOrgs: an account with no orgs is handled
+// gracefully — account context saved and active, a clear message, no crash.
+func TestFinishSignin_NoOrg_ZeroOrgs(t *testing.T) {
+	setupConfig(t)
+	newOrgListServer(t, 200, `[]`)
+
+	var note strings.Builder
+	tok := &tokenResp{Token: "acct-token", TokenAction: "minted"}
+	if err := finishSignin(tok, "me.example.com", "", "", nil, "", &note); err != nil {
+		t.Fatalf("finishSignin: %v", err)
+	}
+
+	if got := viper.GetString("active-context"); got != "me_example_com" {
+		t.Errorf("active-context = %q, want me_example_com (no orgs to activate)", got)
+	}
+	if got := viper.GetString("contexts.me_example_com.auth.token"); got != "acct-token" {
+		t.Errorf("account token = %q, want acct-token", got)
+	}
+	if !strings.Contains(note.String(), "not a member of any organization") {
+		t.Errorf("expected a no-orgs message, got: %q", note.String())
+	}
+}
+
+// TestFinishSignin_NoOrg_ListErrorFallsBackToAccount: if org discovery fails,
+// the sign-in still succeeds — the account context is saved and active, with a
+// clear pointer to connect/context switch, and the command does not error.
+func TestFinishSignin_NoOrg_ListErrorFallsBackToAccount(t *testing.T) {
+	setupConfig(t)
+	// 401 is not retried, so this is fast and deterministic.
+	newOrgListServer(t, 401, `"unauthorized"`)
+
+	var note strings.Builder
+	tok := &tokenResp{Token: "acct-token", TokenAction: "rotated"}
+	if err := finishSignin(tok, "me.example.com", "", "", nil, "", &note); err != nil {
+		t.Fatalf("finishSignin should not fail when org discovery fails: %v", err)
+	}
+
+	if got := viper.GetString("active-context"); got != "me_example_com" {
+		t.Errorf("active-context = %q, want me_example_com (fallback)", got)
+	}
+	if got := viper.GetString("contexts.me_example_com.auth.token"); got != "acct-token" {
+		t.Errorf("account token = %q, want acct-token", got)
+	}
+	if !strings.Contains(note.String(), "could not list your organizations") {
+		t.Errorf("expected a fallback message, got: %q", note.String())
+	}
+}
+
+// TestFinishSignin_OrgFlagPathUnchanged: the explicit --org create path must be
+// unaffected by the no-org org-population change — it still creates the org and
+// activates it, and never calls the org-list endpoint.
+func TestFinishSignin_OrgFlagPathUnchanged(t *testing.T) {
+	setupConfig(t)
+	// If the --org path wrongly hit pkg/client, this would 500; it must not.
+	newOrgListServer(t, 500, `"should not be called"`)
+	srv, cap := newOrgServer(t, 200, `{"organization_id":"org-1","name":"myorg","username":"myorg"}`)
+
+	tok := &tokenResp{Token: "acct-token", TokenAction: "minted"}
+	if err := finishSignin(tok, "me.example.com", "myorg", "myorg.example.com", srv.Client(), srv.URL, io.Discard); err != nil {
+		t.Fatalf("finishSignin: %v", err)
+	}
+
+	if got := atomic.LoadInt64(&cap.calls); got != 1 {
+		t.Errorf("org create calls = %d, want 1", got)
+	}
+	if got := viper.GetString("active-context"); got != "myorg_example_com" {
+		t.Errorf("active-context = %q, want myorg_example_com", got)
 	}
 }
