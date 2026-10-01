@@ -100,3 +100,44 @@ func TestBuildScheduleYAMLNotificationSkipFlags(t *testing.T) {
 		}
 	}
 }
+
+func TestWithNotificationSkipFlags(t *testing.T) {
+	t.Run("missing flags default to false", func(t *testing.T) {
+		got := withNotificationSkipFlags(map[string]any{
+			"schedule": map[string]any{"id": "t1"},
+		})
+		schedule := got.(map[string]any)["schedule"].(map[string]any)
+		for _, k := range taskNotificationSkipKeys {
+			if v, ok := schedule[k]; !ok || v != false {
+				t.Errorf("%s = %v (present=%t), want false", k, v, ok)
+			}
+		}
+	})
+
+	t.Run("server values are kept", func(t *testing.T) {
+		got := withNotificationSkipFlags(map[string]any{
+			"schedule": map[string]any{
+				"skip_scheduled_run_notifications": true,
+				"skip_manual_run_notifications":    false,
+			},
+		})
+		schedule := got.(map[string]any)["schedule"].(map[string]any)
+		if schedule["skip_scheduled_run_notifications"] != true {
+			t.Errorf("scheduled flag overwritten: %v", schedule)
+		}
+		if schedule["skip_manual_run_notifications"] != false {
+			t.Errorf("manual flag overwritten: %v", schedule)
+		}
+	})
+
+	t.Run("unexpected shapes pass through", func(t *testing.T) {
+		for _, in := range []any{nil, "oops", []any{1}, map[string]any{"error": "x"}} {
+			got := withNotificationSkipFlags(in)
+			if m, ok := got.(map[string]any); ok {
+				if _, has := m["schedule"]; has {
+					t.Errorf("schedule injected into %v", in)
+				}
+			}
+		}
+	})
+}

@@ -72,9 +72,33 @@ var taskShowCmd = &cobra.Command{
 		}
 		var result any
 		json.Unmarshal(resp.Body, &result)
-		output.Result(result)
+		output.Result(withNotificationSkipFlags(result))
 		return nil
 	},
+}
+
+// taskNotificationSkipKeys are the per-task commit-status suppression flags
+// v1alpha GET /tasks/:id reports under "schedule".
+var taskNotificationSkipKeys = []string{"skip_scheduled_run_notifications", "skip_manual_run_notifications"}
+
+// withNotificationSkipFlags makes both skip flags explicit on a task show
+// response. Servers that predate the flags omit them and never skip commit
+// statuses, so a missing key is reported as false.
+func withNotificationSkipFlags(result any) any {
+	top, ok := result.(map[string]any)
+	if !ok {
+		return result
+	}
+	schedule, ok := top["schedule"].(map[string]any)
+	if !ok {
+		return result
+	}
+	for _, k := range taskNotificationSkipKeys {
+		if _, present := schedule[k]; !present {
+			schedule[k] = false
+		}
+	}
+	return result
 }
 
 var (
@@ -330,8 +354,8 @@ func init() {
 	taskCreateCmd.Flags().StringVar(&taskCreateFileFlag, "file", ".semaphore/semaphore.yml", "pipeline YAML file")
 	taskCreateCmd.Flags().StringVar(&taskCreateCronFlag, "cron", "", "cron expression for recurring tasks")
 	taskCreateCmd.Flags().StringArrayVar(&taskCreateParamDefFlag, "param-def", nil, "parameter definition as NAME (required) or NAME=DEFAULT (optional with default); repeatable")
-	taskCreateCmd.Flags().BoolVar(&taskCreateSkipScheduledFlag, "skip-scheduled-run-notifications", false, "don't send commit statuses for pipelines this task starts on schedule")
-	taskCreateCmd.Flags().BoolVar(&taskCreateSkipManualFlag, "skip-manual-run-notifications", false, "don't send commit statuses for pipelines this task starts with \"Run now\"")
+	taskCreateCmd.Flags().BoolVar(&taskCreateSkipScheduledFlag, "skip-scheduled-run-notifications", false, "don't send commit statuses for pipelines this task starts on schedule (reruns included)")
+	taskCreateCmd.Flags().BoolVar(&taskCreateSkipManualFlag, "skip-manual-run-notifications", false, "don't send commit statuses for pipelines this task starts manually: Run now, API, or CLI (reruns included)")
 
 	taskRunCmd.Flags().StringArrayVar(&taskRunParamsFlag, "param", nil, "task parameter as KEY=VALUE (repeatable)")
 	taskRunCmd.Flags().StringVar(&taskRunBranchFlag, "branch", "", "git ref the task pipeline runs on (e.g. master); defaults to the task's configured branch")
