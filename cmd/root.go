@@ -24,6 +24,7 @@ var (
 	formatFlag   string
 	verboseFlag  bool
 	examplesFlag bool
+	contextFlag  string
 
 	errExamplesShown = fmt.Errorf("examples shown")
 
@@ -66,6 +67,15 @@ var rootCmd = &cobra.Command{
 				})
 			}
 			return errExamplesShown
+		}
+
+		// Resolving the context can fail (unknown --context name). It has to
+		// fail this one command, not the process: on the MCP surface every
+		// tool call re-enters here, so exiting would let one bad argument
+		// take down the server for every other session.
+		if err := initConfig(cmd); err != nil {
+			output.Error("config_error", err.Error(), 1)
+			return err
 		}
 
 		// Best-effort passive version notice. Synchronous cache-fresh path
@@ -132,20 +142,49 @@ func patchArgsForExamples(cmd *cobra.Command) {
 }
 
 func init() {
-	cobra.OnInitialize(initConfig)
-
 	rootCmd.PersistentFlags().StringVarP(&formatFlag, "format", "f", "json", "output format: json, table, yaml, compact")
 	rootCmd.PersistentFlags().BoolVarP(&verboseFlag, "verbose", "v", false, "verbose output (show HTTP requests)")
 	rootCmd.PersistentFlags().BoolVar(&examplesFlag, "examples", false, "show command examples and exit")
+	rootCmd.PersistentFlags().StringVar(&contextFlag, "context", "", "named context from ~/.sem.yaml to use for this invocation (overrides SEM_CONTEXT and the active context, read-only)")
 }
 
-func initConfig() {
+// contextAgnostic marks a command that must not resolve --context/SEM_CONTEXT.
+// Set it on anything that writes ~/.sem.yaml's contexts or reports the file's
+// own state: a selector naming a context that does not exist yet would abort
+// the command that was about to create it, and the file's active-context is
+// what `context list`/`switch` are supposed to show.
+const contextAgnostic = "sem-ai:context-agnostic"
+
+// explicitSelector returns the context name this invocation names, and where it
+// came from, or "" — the flag first, then the env var, matching config.Load's
+// precedence. Commands exempt from resolving a selector still need to see one.
+func explicitSelector() (name, source string) {
+	if contextFlag != "" {
+		return contextFlag, "--context"
+	}
+	if v := os.Getenv(config.EnvContext); v != "" {
+		return v, config.EnvContext
+	}
+	return "", ""
+}
+
+// initConfig locates ~/.sem.yaml, reads it, and resolves the context this
+// invocation runs against. Called from PersistentPreRunE — after flag parsing,
+// so --context is populated — rather than from cobra.OnInitialize, which
+// cannot report a failure. cmd may be nil.
+func initConfig(cmd *cobra.Command) error {
 	home, err := homedir.Dir()
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "failed to find home directory: %v\n", err)
-		os.Exit(1)
+		return fmt.Errorf("failed to find home directory: %w", err)
 	}
 
+	// Start from clean viper state every invocation. viper.Set (connect,
+	// signin, context switch) writes to viper's override registry, which
+	// ReadInConfig never clears — without the reset, one mutating tool call
+	// in the long-lived MCP server pins its values over every later call's
+	// re-read of the file (e.g. a token rotated by another process is never
+	// picked up until the server restarts).
+	viper.Reset()
 	viper.AddConfigPath(home)
 	viper.SetConfigName(".sem")
 	viper.SetConfigType("yaml")
@@ -157,8 +196,12 @@ func initConfig() {
 	}
 
 	if err := viper.ReadInConfig(); err != nil {
-		log.Printf("warning: could not read config: %v", err)
+		if _, ok := err.(viper.ConfigFileNotFoundError); !ok {
+			return fmt.Errorf("could not read config %s: %w", path, err)
+		}
 	}
 
-	config.Load()
+	config.SetExplicitContext(contextFlag)
+	config.IgnoreContextSelectors(cmd != nil && cmd.Annotations[contextAgnostic] == "true")
+	return config.Load()
 }

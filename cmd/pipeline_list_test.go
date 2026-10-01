@@ -145,6 +145,7 @@ func TestPipelineListWarnsOnSkippedItems(t *testing.T) {
 }
 
 func TestMCPCompactOverride(t *testing.T) {
+	isolateConfigHome(t)
 	prevSource, prevFormat := invocationSource, formatFlag
 	t.Cleanup(func() {
 		invocationSource, formatFlag = prevSource, prevFormat
