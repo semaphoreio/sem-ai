@@ -51,6 +51,11 @@ sem-ai task run <id> --param KEY=VALUE [--param ...] \
 sem-ai task create <name> --branch main --file <path> [--cron "<expr>"] \
   [--param-def NAME] [--param-def NAME=DEFAULT] \
   [--skip-scheduled-run-notifications] [--skip-manual-run-notifications]
+
+# Change the skip flags on an existing task (keeps its ID and history).
+# Each flag takes true/false; omit it to keep the current value.
+sem-ai task update <id> [--skip-scheduled-run-notifications true|false] \
+  [--skip-manual-run-notifications true|false]
 ```
 
 ## Artifacts
