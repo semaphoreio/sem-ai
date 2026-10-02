@@ -259,7 +259,7 @@ Commands that run at pipeline initialization, before any block. One check per or
 | Command | Description |
 |---------|-------------|
 | `notification list/show/create/delete` | Notification rules |
-| `task list/show/create/run/delete` | Scheduled tasks |
+| `task list/show/create/update/run/delete` | Scheduled tasks |
 | `agent types/show/list/delete` | Self-hosted agent management |
 
 ### Artifacts
