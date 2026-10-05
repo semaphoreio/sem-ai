@@ -145,16 +145,20 @@ func TestWithNotificationSkipFlags(t *testing.T) {
 	})
 }
 
-// taskUpdateMock serves GET /tasks/t1 with schedule, resolves proj-1 to
-// my-app, and accepts the apply POST.
+// taskUpdateMock serves GET /tasks/t1 with schedule, lists proj-1 as my-app,
+// and accepts the apply POST. Like the real API, GET /projects/:name looks up
+// names only, so GET /projects/proj-1 404s and the command has to find the
+// project through the list.
 func taskUpdateMock(t *testing.T, schedule map[string]any) *[]capturedReq {
 	t.Helper()
 	reqs, _, _ := apiMock(t, func(w http.ResponseWriter, r *http.Request) {
 		switch {
 		case r.Method == "GET" && r.URL.Path == "/api/v1alpha/tasks/t1":
 			writeJSON(w, 200, map[string]any{"schedule": schedule, "triggers": []any{}})
-		case r.Method == "GET" && r.URL.Path == "/api/v1alpha/projects/proj-1":
-			writeJSON(w, 200, map[string]any{"metadata": map[string]any{"id": "proj-1", "name": "my-app"}})
+		case r.Method == "GET" && r.URL.Path == "/api/v1alpha/projects":
+			writeJSON(w, 200, []any{map[string]any{"metadata": map[string]any{"id": "proj-1", "name": "my-app"}}})
+		case r.Method == "GET" && strings.HasPrefix(r.URL.Path, "/api/v1alpha/projects/"):
+			writeJSON(w, 404, map[string]any{"message": "Not found"})
 		case r.Method == "POST" && r.URL.Path == "/api/v1alpha/tasks":
 			writeJSON(w, 200, map[string]any{"id": "t1"})
 		default:
@@ -299,8 +303,8 @@ func TestTaskUpdate_ApplyErrorIsReturned(t *testing.T) {
 				"id": "t1", "name": "nightly", "project_id": "proj-1", "branch": "main",
 				"at": "0 2 * * *", "pipeline_file": ".semaphore/cron.yml", "recurring": true,
 			}})
-		case r.Method == "GET" && r.URL.Path == "/api/v1alpha/projects/proj-1":
-			writeJSON(w, 200, map[string]any{"metadata": map[string]any{"id": "proj-1", "name": "my-app"}})
+		case r.Method == "GET" && r.URL.Path == "/api/v1alpha/projects":
+			writeJSON(w, 200, []any{map[string]any{"metadata": map[string]any{"id": "proj-1", "name": "my-app"}}})
 		default:
 			writeJSON(w, 400, map[string]any{"message": "unknown key skip_manual_run_notifications"})
 		}
@@ -342,5 +346,125 @@ func TestTaskUpdate_MCPForwardsFalse(t *testing.T) {
 	joined := strings.Join(argv, " ")
 	if !strings.Contains(joined, "t1") || !strings.Contains(joined, "--skip-scheduled-run-notifications false") {
 		t.Errorf("argv = %v, want task id and explicit false", argv)
+	}
+}
+
+// projectPagesMock serves GET /projects as two pages of 500-per-page style
+// listing: page 1 sets x-has-more and lacks the target, page 2 has it.
+// GET /projects/:name 404s for anything, as the real API does for an ID.
+func projectPagesMock(t *testing.T, extra func(w http.ResponseWriter, r *http.Request) bool) *[]capturedReq {
+	t.Helper()
+	reqs, _, _ := apiMock(t, func(w http.ResponseWriter, r *http.Request) {
+		if extra != nil && extra(w, r) {
+			return
+		}
+		switch {
+		case r.Method == "GET" && r.URL.Path == "/api/v1alpha/projects":
+			if r.URL.Query().Get("page") == "2" {
+				writeJSON(w, 200, []any{map[string]any{"metadata": map[string]any{"id": "proj-2", "name": "far-app"}}})
+				return
+			}
+			w.Header().Set("x-has-more", "true")
+			writeJSON(w, 200, []any{map[string]any{"metadata": map[string]any{"id": "proj-1", "name": "my-app"}}})
+		case r.Method == "GET" && strings.HasPrefix(r.URL.Path, "/api/v1alpha/projects/"):
+			writeJSON(w, 404, map[string]any{"message": "Not found"})
+		default:
+			writeJSON(w, 500, map[string]any{"error": "unexpected " + r.Method + " " + r.URL.Path})
+		}
+	})
+	return reqs
+}
+
+func TestTaskUpdate_FindsProjectOnLaterPage(t *testing.T) {
+	reqs := projectPagesMock(t, func(w http.ResponseWriter, r *http.Request) bool {
+		switch {
+		case r.Method == "GET" && r.URL.Path == "/api/v1alpha/tasks/t1":
+			writeJSON(w, 200, map[string]any{"schedule": map[string]any{
+				"id": "t1", "name": "nightly", "project_id": "proj-2", "branch": "main",
+				"at": "0 2 * * *", "pipeline_file": ".semaphore/cron.yml", "recurring": true,
+			}})
+			return true
+		case r.Method == "POST" && r.URL.Path == "/api/v1alpha/tasks":
+			writeJSON(w, 200, map[string]any{"id": "t1"})
+			return true
+		}
+		return false
+	})
+	t.Cleanup(func() { taskUpdateSkipManualFlag = "" })
+
+	taskUpdateSkipManualFlag = "true"
+	if err := taskUpdateCmd.RunE(taskUpdateCmd, []string{"t1"}); err != nil {
+		t.Fatalf("task update: %v", err)
+	}
+	if _, spec := postedSpec(t, reqs); spec["project"] != "far-app" {
+		t.Errorf("spec.project = %v, want far-app from page 2", spec["project"])
+	}
+}
+
+func TestResolveProject_PagesByIDAndName(t *testing.T) {
+	for _, in := range []string{"proj-2", "far-app"} {
+		projectPagesMock(t, nil)
+		name, id, err := resolveProject(in)
+		if err != nil || name != "far-app" || id != "proj-2" {
+			t.Errorf("resolveProject(%q) = %q, %q, %v; want far-app, proj-2", in, name, id, err)
+		}
+	}
+}
+
+func TestResolveProjectID_FindsNameOnLaterPage(t *testing.T) {
+	projectPagesMock(t, nil)
+	id, err := resolveProjectID("far-app")
+	if err != nil || id != "proj-2" {
+		t.Errorf("resolveProjectID(far-app) = %q, %v; want proj-2", id, err)
+	}
+}
+
+func TestResolveProjectID_StopsAtFirstMatch(t *testing.T) {
+	reqs := projectPagesMock(t, nil)
+	if id, err := resolveProjectID("proj-1"); err != nil || id != "proj-1" {
+		t.Fatalf("resolveProjectID(proj-1) = %q, %v", id, err)
+	}
+	if n := count(reqs, "GET", "/api/v1alpha/projects"); n != 1 {
+		t.Errorf("listed %d pages, want 1 (match is on page 1)", n)
+	}
+}
+
+func TestResolveProject_UnknownAndListFailure(t *testing.T) {
+	projectPagesMock(t, nil)
+	if _, _, err := resolveProject("ghost"); err == nil || !strings.Contains(err.Error(), "project not found") {
+		t.Errorf("unknown project: err = %v, want project not found", err)
+	}
+
+	apiMock(t, func(w http.ResponseWriter, r *http.Request) {
+		writeJSON(w, 403, map[string]any{"message": "forbidden"})
+	})
+	if _, _, err := resolveProject("proj-9"); err == nil || !strings.Contains(err.Error(), "listing projects") {
+		t.Errorf("list failure: err = %v, want listing error", err)
+	}
+	// resolveProjectID keeps its old contract: an unresolvable input is
+	// returned as-is (assumed to already be an ID).
+	if id, err := resolveProjectID("proj-9"); err != nil || id != "proj-9" {
+		t.Errorf("resolveProjectID on list failure = %q, %v; want proj-9 as-is", id, err)
+	}
+}
+
+// A transport failure while listing must surface, not fall through to the
+// as-is return: swallowing it hid the real error and cost a second full
+// retry cycle on the caller's next request.
+func TestResolveProjectID_TransportErrorIsReturned(t *testing.T) {
+	apiMock(t, func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/api/v1alpha/projects" {
+			hj, ok := w.(http.Hijacker)
+			if !ok {
+				t.Fatal("hijack unsupported")
+			}
+			conn, _, _ := hj.Hijack()
+			_ = conn.Close() // drop the connection: a transport error
+			return
+		}
+		writeJSON(w, 404, map[string]any{"message": "Not found"})
+	})
+	if _, err := resolveProjectID("proj-9"); err == nil {
+		t.Error("expected transport error to be returned")
 	}
 }
