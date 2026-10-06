@@ -149,6 +149,17 @@ func pathWithParams(path string, params url.Values) string {
 	return fmt.Sprintf("%s?%s", path, params.Encode())
 }
 
+// StatusError is returned by ListAll when a page comes back non-200, so
+// callers can tell an HTTP answer apart from a transport failure.
+type StatusError struct {
+	StatusCode int
+	Body       []byte
+}
+
+func (e *StatusError) Error() string {
+	return fmt.Sprintf("API returned %d: %s", e.StatusCode, string(e.Body))
+}
+
 // ListAll auto-paginates using link header (rel="next") or x-has-more.
 // An optional StopFunc can be passed to halt pagination early — it receives
 // each page of raw items and returns true to stop fetching more pages.
@@ -173,7 +184,7 @@ func (c *Client) ListAll(kind string, params url.Values, stopFn ...func([]json.R
 			return nil, err
 		}
 		if resp.StatusCode != 200 {
-			return nil, fmt.Errorf("API returned %d: %s", resp.StatusCode, string(resp.Body))
+			return nil, &StatusError{StatusCode: resp.StatusCode, Body: resp.Body}
 		}
 
 		var items []json.RawMessage

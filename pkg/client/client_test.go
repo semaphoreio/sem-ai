@@ -2,6 +2,7 @@ package client
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -799,5 +800,22 @@ func TestListWithParamsEmptyParamsHasNoTrailingQuestionMark(t *testing.T) {
 
 	if gotURI != "/api/v1alpha/pre_flight_checks" {
 		t.Errorf("request URI = %q, want /api/v1alpha/pre_flight_checks", gotURI)
+	}
+}
+
+func TestListAllReturnsStatusErrorOnNon200(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusForbidden)
+		_, _ = w.Write([]byte(`{"message":"forbidden"}`))
+	}))
+	defer srv.Close()
+
+	_, err := newTestClient(strings.TrimPrefix(srv.URL, "http://"), "tok").ListAll("projects", nil)
+	var statusErr *StatusError
+	if !errors.As(err, &statusErr) || statusErr.StatusCode != http.StatusForbidden {
+		t.Fatalf("err = %v, want *StatusError with 403", err)
+	}
+	if got, want := err.Error(), `API returned 403: {"message":"forbidden"}`; got != want {
+		t.Errorf("Error() = %q, want unchanged message %q", got, want)
 	}
 }
