@@ -343,8 +343,12 @@ NOT the same as "workflow rerun", which only reschedules an EXISTING workflow
 by its ID, and therefore cannot produce the first run for a project that has
 none yet.
 
-When run inside a checked-out repository the branch defaults to the current
-git branch and the commit to the current HEAD. Requires the caller to hold the
+When --project is omitted (or names this checkout's project) the branch
+defaults to the current git branch. Without --commit the server runs the
+branch head as pushed. For a tag, pass --branch refs/tags/<tag>; a bare name
+is treated as a branch. The request is sent once and never retried, so a
+timeout may still have created the workflow: check "workflow list" before
+running it again. Requires the caller to hold the
 project.job.rerun permission. Note: the public API masks an RBAC denial as
 HTTP 404 "Not Found" (not 403), so a 404 here can mean either the project does
 not exist OR the token's user lacks project.job.rerun.`,
@@ -362,8 +366,16 @@ not exist OR the token's user lacks project.job.rerun.`,
 			return err
 		}
 
+		// The branch is taken from the local checkout only when the project is
+		// this checkout's project. With --project naming another project, the
+		// local branch says nothing about it, so --branch is required.
 		reference := wfRunBranchFlag
 		if reference == "" {
+			if !projectIsCheckout(wfRunProjectFlag, projectID) {
+				err := fmt.Errorf("--project is not this checkout's project; pass --branch")
+				output.Error("branch_error", err.Error(), 1)
+				return err
+			}
 			// A detached HEAD makes "git rev-parse --abbrev-ref HEAD" print the
 			// literal string "HEAD" (not empty, not an error). That's not a
 			// usable branch/reference, so treat it the same as "not detected".
@@ -377,24 +389,15 @@ not exist OR the token's user lacks project.job.rerun.`,
 			return err
 		}
 
-		commit := wfRunCommitFlag
-		if commit == "" {
-			if sha, serr := gitutil.CurrentCommitSHA(); serr == nil {
-				commit = sha
-			}
-		}
-
-		// request_token is the same idempotency key workflow rerun/stop pass to
-		// the reschedule/terminate actions; it lets client.doWithRetry retry a
-		// timed-out or 5xx create without the server scheduling a duplicate
-		// workflow for the same request.
+		// commit_sha is sent only when given. Without it the server runs the
+		// branch head as pushed, which is what the user can actually build; a
+		// local HEAD may be unpushed or belong to a different branch.
 		payload := map[string]string{
-			"project_id":    projectID,
-			"reference":     reference,
-			"request_token": client.NewRequestToken(),
+			"project_id": projectID,
+			"reference":  reference,
 		}
-		if commit != "" {
-			payload["commit_sha"] = commit
+		if wfRunCommitFlag != "" {
+			payload["commit_sha"] = wfRunCommitFlag
 		}
 		if wfRunPipelineFlag != "" {
 			payload["pipeline_file"] = wfRunPipelineFlag
@@ -405,13 +408,20 @@ not exist OR the token's user lacks project.job.rerun.`,
 			return err
 		}
 
+		// Sent once, never retried: the create endpoint has no idempotency key
+		// (the server ignores any client request_token), so a retry after a
+		// timeout or 5xx could schedule a duplicate workflow.
 		c := client.New()
-		resp, err := c.Post("plumber-workflows", body)
+		resp, err := c.PostOnce("plumber-workflows", body)
 		if err != nil {
-			output.Error("api_error", err.Error(), 1)
+			output.Error("api_error", err.Error()+"; the workflow may have been created, check `sem-ai workflow list` before retrying", 1)
 			return err
 		}
-		if resp.StatusCode != 200 && resp.StatusCode != 201 {
+		if resp.StatusCode >= 500 {
+			output.Error("api_error", fmt.Sprintf("HTTP %d: %s; the workflow may have been created, check `sem-ai workflow list` before retrying", resp.StatusCode, string(resp.Body)), resp.StatusCode)
+			return fmt.Errorf("API returned %d", resp.StatusCode)
+		}
+		if resp.StatusCode != 200 {
 			output.Error("api_error", fmt.Sprintf("HTTP %d: %s", resp.StatusCode, string(resp.Body)), resp.StatusCode)
 			return fmt.Errorf("API returned %d", resp.StatusCode)
 		}
@@ -426,6 +436,17 @@ not exist OR the token's user lacks project.job.rerun.`,
 	},
 }
 
+// projectIsCheckout reports whether the resolved project is the one detected
+// from this checkout's git remote. An omitted --project was detected from the
+// checkout by definition; an explicit one is compared by ID.
+func projectIsCheckout(projectFlag, projectID string) bool {
+	if projectFlag == "" {
+		return true
+	}
+	detectedID, err := resolveProjectID("")
+	return err == nil && detectedID == projectID
+}
+
 func init() {
 	workflowListCmd.Flags().StringVar(&wfProjectFlag, "project", "", "project name or ID (auto-detected from git remote if omitted)")
 	workflowListCmd.Flags().StringVar(&wfBranchFlag, "branch", "", "filter by branch name")
@@ -433,8 +454,8 @@ func init() {
 	workflowListCmd.Flags().IntVar(&wfLimitFlag, "limit", 30, "max number of workflows to return (0 = server default)")
 	workflowListCmd.Flags().BoolVar(&wfFullFlag, "full", false, "return the raw API payload across all pages instead of trimmed summaries (drops the default --days/--limit window unless set explicitly)")
 	workflowRunCmd.Flags().StringVar(&wfRunProjectFlag, "project", "", "project name or ID (auto-detected from git remote if omitted)")
-	workflowRunCmd.Flags().StringVar(&wfRunBranchFlag, "branch", "", "branch/reference to run on (defaults to current git branch)")
-	workflowRunCmd.Flags().StringVar(&wfRunCommitFlag, "commit", "", "commit SHA to run (defaults to current git HEAD)")
+	workflowRunCmd.Flags().StringVar(&wfRunBranchFlag, "branch", "", "branch, or refs/tags/<tag>, to run on (defaults to the current git branch for this checkout's project)")
+	workflowRunCmd.Flags().StringVar(&wfRunCommitFlag, "commit", "", "commit SHA to run (default: the branch head on the server)")
 	workflowRunCmd.Flags().StringVar(&wfRunPipelineFlag, "pipeline-file", "", "pipeline YAML path (server default: .semaphore/semaphore.yml)")
 	workflowCmd.AddCommand(workflowListCmd)
 	workflowCmd.AddCommand(workflowShowCmd)

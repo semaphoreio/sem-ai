@@ -234,6 +234,13 @@ func (c *Client) Post(kind string, body []byte) (*Response, error) {
 	return c.doWithRetry("POST", c.apiURL(kind), body)
 }
 
+// PostOnce sends a POST request exactly once, without retrying on transport
+// errors, 5xx or 429. Use it for non-idempotent creates, where a retry after a
+// timeout could create the resource twice.
+func (c *Client) PostOnce(kind string, body []byte) (*Response, error) {
+	return c.do("POST", c.apiURL(kind), body)
+}
+
 // Put sends a PUT request.
 func (c *Client) Put(path string, body []byte) (*Response, error) {
 	return c.doWithRetry("PUT", c.apiURL(path), body)
