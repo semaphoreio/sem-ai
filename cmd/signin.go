@@ -686,14 +686,37 @@ func finishAccountSignin(accountHost, token, tokenAction string, w io.Writer) er
 		return saveSigninContext(accountHost, token, tokenAction)
 	}
 
+	domain := domainFromAccountHost(accountHost)
+
+	// Drop orgs whose derived host is not a bare hostname. The username comes
+	// from the server and becomes a host, a context name and a config key, so
+	// it is validated like every user-supplied host.
+	valid := make([]userOrg, 0, len(orgs))
+	for _, o := range orgs {
+		if err := validateHost("organization host", o.Username+"."+domain); err != nil {
+			fmt.Fprintf(w, "Skipping organization %q: %s\n", o.Username, err)
+			continue
+		}
+		valid = append(valid, o)
+	}
+	if len(valid) == 0 {
+		fmt.Fprintf(w, "Signed in, but none of your organizations could be saved. Reach an org with `sem-ai connect <org-host> <token>`.\n")
+		return saveSigninContext(accountHost, token, tokenAction)
+	}
+	orgs = valid
+
+	// The account token stored before this sign-in. An org context holding it
+	// was written by a previous sign-in and is safe to refresh; any other token
+	// there (a service account, a token added with `connect`) belongs to the
+	// user and must not be overwritten.
+	prevAccountToken := viper.GetString(fmt.Sprintf("contexts.%s.auth.token", contextNameForHost(accountHost)))
+
 	// Keep the account context in the file (not active) as the token's home,
 	// mirroring the --org create path; the chosen org context is activated below.
 	if _, err := writeContext(accountHost, token, false); err != nil {
 		output.Error("config_error", fmt.Sprintf("failed to write config: %s", err), 1)
 		return err
 	}
-
-	domain := domainFromAccountHost(accountHost)
 
 	// Re-signin vs first-time: read the active context BEFORE writing any org
 	// context. If it already points at one of this account's orgs, this is a
@@ -721,7 +744,19 @@ func finishAccountSignin(accountHost, token, tokenAction string, w io.Writer) er
 		// Refresh the token for every org context (expected on re-auth), but only
 		// flip active-context when this is a first-time signin.
 		makeActive := autoActivate && o.Username == active.Username
-		name, err := writeContext(host, token, makeActive)
+		name := contextNameForHost(host)
+		stored := viper.GetString(fmt.Sprintf("contexts.%s.auth.token", name))
+		keep := stored != "" && stored != token && stored != prevAccountToken
+		var err error
+		if keep {
+			fmt.Fprintf(w, "Kept the existing token in context %q (it is not from a previous sign-in); replace it with `sem-ai connect %s <token>` if needed.\n", name, host)
+			if makeActive {
+				viper.Set("active-context", name)
+				err = config.Write()
+			}
+		} else {
+			_, err = writeContext(host, token, makeActive)
+		}
 		if err != nil {
 			output.Error("config_error", fmt.Sprintf("signed in, but saving org context %q failed: %s", host, err), 1)
 			return err
@@ -729,12 +764,16 @@ func finishAccountSignin(accountHost, token, tokenAction string, w io.Writer) er
 		if makeActive || (!autoActivate && name == existingActive) {
 			activeHost, activeName = host, name
 		}
-		written = append(written, map[string]string{
+		entry := map[string]string{
 			"host":            host,
 			"context":         name,
 			"organization":    o.Username,
 			"organization_id": o.OrganizationID,
-		})
+		}
+		if keep {
+			entry["token"] = "kept_existing"
+		}
+		written = append(written, entry)
 	}
 
 	switch {
@@ -794,12 +833,12 @@ func domainFromAccountHost(host string) string {
 
 // mostRecentOrg picks the org to activate when the user has several: the most
 // recently created. created_at is an ISO8601 UTC string, so lexical comparison
-// matches chronological order. Falls back to the first org when timestamps are
-// absent or equal.
+// matches chronological order. Ties (or absent timestamps) go to the
+// lexically smallest username, so the choice does not depend on API order.
 func mostRecentOrg(orgs []userOrg) userOrg {
 	active := orgs[0]
 	for _, o := range orgs[1:] {
-		if o.CreatedAt > active.CreatedAt {
+		if o.CreatedAt > active.CreatedAt || (o.CreatedAt == active.CreatedAt && o.Username < active.Username) {
 			active = o
 		}
 	}

@@ -992,7 +992,11 @@ func TestFinishSignin_NoOrg_ReSigninKeepsActiveContext(t *testing.T) {
 	setupConfig(t)
 
 	// Pre-existing state: the user was already active on the OLDER org with a
-	// stale token, as a prior signin would have left it.
+	// stale token, as a prior signin would have left it (the account context
+	// holds the same token).
+	if _, err := writeContext("me.example.com", "stale-token", false); err != nil {
+		t.Fatal(err)
+	}
 	if _, err := writeContext("old.example.com", "stale-token", true); err != nil {
 		t.Fatal(err)
 	}
@@ -1099,5 +1103,130 @@ func TestFinishSignin_OrgFlagPathUnchanged(t *testing.T) {
 	}
 	if got := viper.GetString("active-context"); got != "myorg_example_com" {
 		t.Errorf("active-context = %q, want myorg_example_com", got)
+	}
+}
+
+// TestFinishSignin_NoOrg_KeepsForeignToken: an org context holding a token that
+// did not come from a previous sign-in (a service account, a token added with
+// `connect`) is left alone. The other orgs are still written and the user is
+// told which context was kept.
+func TestFinishSignin_NoOrg_KeepsForeignToken(t *testing.T) {
+	setupConfig(t)
+	if _, err := writeContext("acme.example.com", "sa-token", false); err != nil {
+		t.Fatal(err)
+	}
+	newOrgListServer(t, 200, `[
+		{"organization_id":"org-1","name":"Acme","username":"acme","created_at":"2024-06-01T00:00:00Z"},
+		{"organization_id":"org-2","name":"Beta","username":"beta","created_at":"2020-01-01T00:00:00Z"}
+	]`)
+
+	var note strings.Builder
+	tok := &tokenResp{Token: "acct-token", TokenAction: "rotated"}
+	if err := finishSignin(tok, "me.example.com", "", "", nil, "", &note); err != nil {
+		t.Fatalf("finishSignin: %v", err)
+	}
+
+	if got := viper.GetString("contexts.acme_example_com.auth.token"); got != "sa-token" {
+		t.Errorf("acme token = %q, want sa-token (must not be overwritten)", got)
+	}
+	if got := viper.GetString("contexts.beta_example_com.auth.token"); got != "acct-token" {
+		t.Errorf("beta token = %q, want acct-token", got)
+	}
+	// First-time signin still activates the newest org; its own token is kept.
+	if got := viper.GetString("active-context"); got != "acme_example_com" {
+		t.Errorf("active-context = %q, want acme_example_com", got)
+	}
+	if !strings.Contains(note.String(), "Kept the existing token") {
+		t.Errorf("expected a kept-token note, got: %q", note.String())
+	}
+}
+
+// TestFinishSignin_NoOrg_RefreshesPreviousSigninToken: an org context holding
+// the token a previous sign-in stored (same as the old account token) is
+// refreshed with the new token, with no kept-token note.
+func TestFinishSignin_NoOrg_RefreshesPreviousSigninToken(t *testing.T) {
+	setupConfig(t)
+	if _, err := writeContext("me.example.com", "old-token", true); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := writeContext("acme.example.com", "old-token", false); err != nil {
+		t.Fatal(err)
+	}
+	newOrgListServer(t, 200,
+		`[{"organization_id":"org-1","name":"Acme","username":"acme","created_at":"2024-06-01T00:00:00Z"}]`)
+
+	var note strings.Builder
+	tok := &tokenResp{Token: "acct-token", TokenAction: "rotated"}
+	if err := finishSignin(tok, "me.example.com", "", "", nil, "", &note); err != nil {
+		t.Fatalf("finishSignin: %v", err)
+	}
+
+	if got := viper.GetString("contexts.acme_example_com.auth.token"); got != "acct-token" {
+		t.Errorf("acme token = %q, want acct-token (refreshed)", got)
+	}
+	if got := viper.GetString("active-context"); got != "acme_example_com" {
+		t.Errorf("active-context = %q, want acme_example_com", got)
+	}
+	if strings.Contains(note.String(), "Kept the existing token") {
+		t.Errorf("unexpected kept-token note: %q", note.String())
+	}
+}
+
+// TestFinishSignin_NoOrg_SkipsInvalidUsername: an org whose username does not
+// form a bare hostname is skipped; valid orgs are still written. When no org
+// is valid, the sign-in falls back to the account context.
+func TestFinishSignin_NoOrg_SkipsInvalidUsername(t *testing.T) {
+	t.Run("mixed", func(t *testing.T) {
+		setupConfig(t)
+		newOrgListServer(t, 200, `[
+			{"organization_id":"org-bad","name":"Bad","username":"attacker.net/x#","created_at":"2025-01-01T00:00:00Z"},
+			{"organization_id":"org-1","name":"Acme","username":"acme","created_at":"2024-01-01T00:00:00Z"}
+		]`)
+		var note strings.Builder
+		tok := &tokenResp{Token: "acct-token", TokenAction: "minted"}
+		if err := finishSignin(tok, "me.example.com", "", "", nil, "", &note); err != nil {
+			t.Fatalf("finishSignin: %v", err)
+		}
+		if got := viper.GetString("active-context"); got != "acme_example_com" {
+			t.Errorf("active-context = %q, want acme_example_com", got)
+		}
+		for k := range viper.GetStringMap("contexts") {
+			if strings.Contains(k, "attacker") {
+				t.Errorf("invalid org context written: %q", k)
+			}
+		}
+		if !strings.Contains(note.String(), "Skipping organization") {
+			t.Errorf("expected a skip note, got: %q", note.String())
+		}
+	})
+	t.Run("all invalid", func(t *testing.T) {
+		setupConfig(t)
+		newOrgListServer(t, 200,
+			`[{"organization_id":"org-bad","name":"Bad","username":"bad/x","created_at":"2025-01-01T00:00:00Z"}]`)
+		tok := &tokenResp{Token: "acct-token", TokenAction: "minted"}
+		if err := finishSignin(tok, "me.example.com", "", "", nil, "", io.Discard); err != nil {
+			t.Fatalf("finishSignin: %v", err)
+		}
+		if got := viper.GetString("active-context"); got != "me_example_com" {
+			t.Errorf("active-context = %q, want me_example_com (fallback)", got)
+		}
+	})
+}
+
+// TestMostRecentOrg_TieBreak: equal created_at picks the smallest username
+// regardless of API order; a newer org still wins over a smaller username.
+func TestMostRecentOrg_TieBreak(t *testing.T) {
+	ts := "2024-01-01T00:00:00Z"
+	for _, orgs := range [][]userOrg{
+		{{Username: "zeta", CreatedAt: ts}, {Username: "alpha", CreatedAt: ts}},
+		{{Username: "alpha", CreatedAt: ts}, {Username: "zeta", CreatedAt: ts}},
+	} {
+		if got := mostRecentOrg(orgs).Username; got != "alpha" {
+			t.Errorf("mostRecentOrg(%v) = %q, want alpha", orgs, got)
+		}
+	}
+	newer := []userOrg{{Username: "alpha", CreatedAt: ts}, {Username: "zeta", CreatedAt: "2025-01-01T00:00:00Z"}}
+	if got := mostRecentOrg(newer).Username; got != "zeta" {
+		t.Errorf("mostRecentOrg = %q, want zeta (newest)", got)
 	}
 }
