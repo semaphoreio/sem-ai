@@ -2061,6 +2061,13 @@ func TestPullStopsDownloadingOnceTheOrganizationRefuses(t *testing.T) {
 	if !strings.Contains(stderr, "rate_limited") {
 		t.Errorf("stderr should report the rate limit as such, got %q", stderr)
 	}
+	rows, _ := result["artifacts"].([]any)
+	for _, row := range rows {
+		r, _ := row.(map[string]any)
+		if r["status"] == "not_attempted" && r["error"] != "not attempted: the organization refused an earlier download" {
+			t.Fatalf("a not_attempted row should carry the short fixed text, got %q", r["error"])
+		}
+	}
 }
 
 func TestAStorageRefusalStaysPerFile(t *testing.T) {

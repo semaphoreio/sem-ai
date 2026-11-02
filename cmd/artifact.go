@@ -745,11 +745,11 @@ func pullFiles(c *client.Client, files []artifactEntry) ([]pullResult, error) {
 		// them, which for a large tree is a lot of stacks doing nothing.
 		sem <- struct{}{}
 		mu.Lock()
-		stop := refused
+		stop := refused != nil
 		mu.Unlock()
-		if stop != nil {
+		if stop {
 			<-sem
-			results[i] = pullResult{Path: f.Path, Status: "not_attempted", Error: stop.Error()}
+			results[i] = pullResult{Path: f.Path, Status: "not_attempted", Error: "not attempted: the organization refused an earlier download"}
 			continue
 		}
 		wg.Add(1)
