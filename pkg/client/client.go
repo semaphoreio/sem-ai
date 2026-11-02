@@ -5,6 +5,7 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log"
@@ -392,15 +393,23 @@ func (c *Client) GetExternal(rawURL string) (*Response, error) {
 		log.Printf("GET (external) %s", rawURL)
 		resp, err := c.httpClient.Get(rawURL)
 		if err != nil {
-			return nil, err
+			return nil, externalError(err)
 		}
 		defer resp.Body.Close()
 		body, err := io.ReadAll(resp.Body)
 		if err != nil {
-			return nil, err
+			return nil, externalError(err)
 		}
 		return &Response{Body: body, StatusCode: resp.StatusCode, Headers: resp.Header}, nil
 	})
+}
+
+func externalError(err error) error {
+	var urlErr *url.Error
+	if errors.As(err, &urlErr) {
+		return urlErr.Err
+	}
+	return err
 }
 
 // HTTPError is returned when retries are exhausted against a response that

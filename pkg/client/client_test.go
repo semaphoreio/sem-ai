@@ -990,3 +990,38 @@ func TestGetExternalReportsALongRetryAfter(t *testing.T) {
 		t.Errorf("made %d requests inside a window it was told to sit out", n)
 	}
 }
+
+func TestGetExternalErrorsDoNotCarryTheSignedURL(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}))
+	signedURL := srv.URL + "/blob?X-Goog-Signature=s3cr3t"
+	srv.Close()
+
+	_, err := newTestClient("unused.test", "tok").GetExternal(signedURL)
+	if err == nil {
+		t.Fatal("expected a connection error from a closed server")
+	}
+	if msg := err.Error(); strings.Contains(msg, "s3cr3t") || strings.Contains(msg, "?") {
+		t.Errorf("error leaks the signed URL: %q", msg)
+	}
+}
+
+func TestGetExternalTimeoutDoesNotCarryTheSignedURL(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		select {
+		case <-r.Context().Done():
+		case <-time.After(2 * time.Second):
+		}
+	}))
+	defer srv.Close()
+
+	c := newTestClient("unused.test", "tok")
+	c.httpClient.Timeout = 100 * time.Millisecond
+
+	_, err := c.GetExternal(srv.URL + "/blob?X-Goog-Signature=s3cr3t")
+	if err == nil {
+		t.Fatal("expected a timeout")
+	}
+	if msg := err.Error(); strings.Contains(msg, "s3cr3t") || strings.Contains(msg, "?") {
+		t.Errorf("error leaks the signed URL: %q", msg)
+	}
+}
