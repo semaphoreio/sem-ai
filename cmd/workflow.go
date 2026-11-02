@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/url"
 	"time"
@@ -155,8 +156,8 @@ var workflowShowCmd = &cobra.Command{
 // When nameOrID is empty it auto-detects the project from the git remote
 // ("origin"); detectProject errors if the remote matches zero or several
 // projects, so callers no longer need to require --project explicitly.
-// Otherwise it tries a direct GET, then falls back to listing all projects
-// and matching by name.
+// Otherwise it tries a direct GET, then falls back to paging through all
+// projects and matching by name or ID.
 func resolveProjectID(nameOrID string) (string, error) {
 	if nameOrID == "" {
 		detected, err := detectProject()
@@ -181,25 +182,17 @@ func resolveProjectID(nameOrID string) (string, error) {
 		}
 	}
 
-	// Fallback: list all projects and find by name
-	listResp, err := c.List("projects")
-	if err != nil {
+	// Fallback: page through the project list and match by name or ID. The
+	// direct GET above looks projects up by name only, so an ID always lands
+	// here. A transport failure is returned; an HTTP error (e.g. a token that
+	// can't list projects) falls through to the as-is return below.
+	_, id, found, err := findProjectInList(c, nameOrID)
+	var statusErr *client.StatusError
+	if err != nil && !errors.As(err, &statusErr) {
 		return "", err
 	}
-	if listResp.StatusCode == 200 {
-		var projects []struct {
-			Metadata struct {
-				Name string `json:"name"`
-				ID   string `json:"id"`
-			} `json:"metadata"`
-		}
-		if err := json.Unmarshal(listResp.Body, &projects); err == nil {
-			for _, p := range projects {
-				if p.Metadata.Name == nameOrID {
-					return p.Metadata.ID, nil
-				}
-			}
-		}
+	if found {
+		return id, nil
 	}
 
 	// Maybe it's already a UUID — return as-is
@@ -232,27 +225,41 @@ func resolveProject(nameOrID string) (name, id string, err error) {
 		}
 	}
 
-	listResp, err := c.List("projects")
+	// The direct GET matches names only, so an ID (e.g. a task's project_id)
+	// always needs the paged list.
+	name, id, found, err := findProjectInList(c, nameOrID)
 	if err != nil {
-		return "", "", err
+		return "", "", fmt.Errorf("listing projects to resolve %s: %w", nameOrID, err)
 	}
-	if listResp.StatusCode == 200 {
-		var projects []struct {
-			Metadata struct {
-				Name string `json:"name"`
-				ID   string `json:"id"`
-			} `json:"metadata"`
-		}
-		if err := json.Unmarshal(listResp.Body, &projects); err == nil {
-			for _, p := range projects {
-				if p.Metadata.Name == nameOrID || p.Metadata.ID == nameOrID {
-					return p.Metadata.Name, p.Metadata.ID, nil
-				}
-			}
-		}
+	if found {
+		return name, id, nil
 	}
 
 	return "", "", fmt.Errorf("project not found: %s", nameOrID)
+}
+
+// findProjectInList pages through GET /projects (500 per page, x-has-more)
+// until a project's name or ID equals nameOrID, stopping at the first match.
+func findProjectInList(c *client.Client, nameOrID string) (name, id string, found bool, err error) {
+	_, err = c.ListAll("projects", nil, func(page []json.RawMessage) bool {
+		for _, raw := range page {
+			var p struct {
+				Metadata struct {
+					Name string `json:"name"`
+					ID   string `json:"id"`
+				} `json:"metadata"`
+			}
+			if json.Unmarshal(raw, &p) != nil {
+				continue
+			}
+			if p.Metadata.Name == nameOrID || p.Metadata.ID == nameOrID {
+				name, id, found = p.Metadata.Name, p.Metadata.ID, true
+				return true
+			}
+		}
+		return false
+	})
+	return name, id, found, err
 }
 
 var workflowRerunCmd = &cobra.Command{

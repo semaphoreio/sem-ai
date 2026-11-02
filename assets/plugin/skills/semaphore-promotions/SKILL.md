@@ -119,12 +119,12 @@ Promoted pipelines are subject to **organization and project pre-flight checks**
 
 | Pre-flight check | Where configured | Scope |
 |---|---|---|
-| Organization-level | Org Settings → Initialization jobs → Pre-flight checks | Every pipeline in the org (CI and every promoted pipeline) |
-| Project-level | Project Settings → Pre-flight checks | Every pipeline in that project |
+| Organization-level | `sem-ai pfc show` / Org Settings → Initialization jobs → Pre-flight checks | Every pipeline in the org (CI and every promoted pipeline) |
+| Project-level | `sem-ai pfc show --project <name>` / Project Settings → Pre-flight checks | Every pipeline in that project |
 
 Important:
 
-- Pre-flight checks are **not in pipeline YAML**. They live in Semaphore Settings (UI / API). YAML changes won't disable them.
+- Pre-flight checks are **not in pipeline YAML**. They are an org/project setting, read and written with `sem-ai pfc` or in the UI. YAML changes won't disable them.
 - Checks are shell commands run in an init job. Can bind secrets, have standard env vars (`SEMAPHORE_PROJECT_NAME`, `SEMAPHORE_GIT_BRANCH`, etc.).
 - The `SEMAPHORE_PIPELINE_PROMOTION` env var is set when the check runs as part of a *promoted* pipeline init — use it to skip-or-tighten checks for promotions specifically.
 - Failure mode: hard fail at init. The pipeline shows up with a failed initialization job and no blocks ever scheduled.
@@ -140,7 +140,7 @@ Common uses:
 Two non-obvious behaviors for the agent to remember:
 
 - **A promotion that "didn't fire" might have started but failed at pre-flight.** Check `sem-ai pipeline show <promoted-pipeline-id>` for an init-job failure with `result: failed` and a near-zero block count.
-- **Disabling a pre-flight check is an org/project setting change**, not a YAML edit. The user must do it in the Semaphore UI (or via API).
+- **Disabling a pre-flight check is an org/project setting change**, not a YAML edit. Do it with `sem-ai pfc delete [--project <name>]`, or narrow the check with `sem-ai pfc apply` — see the `semaphore-preflight` skill before changing one, since the check applies to every workflow in that scope.
 
 ## Inspecting and triggering with sem-ai
 
@@ -153,6 +153,8 @@ Two non-obvious behaviors for the agent to remember:
 | Block a target temporarily | `sem-ai deploy deactivate <target-id>` |
 | Re-enable | `sem-ai deploy activate <target-id>` |
 | Create a new target | `sem-ai deploy create --name <n> --url <u> [...rules]` |
+| Read the pre-flight check that gates the promoted pipeline | `sem-ai pfc show [--project <name>]` |
+| Change or remove that check | `sem-ai pfc apply` / `sem-ai pfc delete` (see `semaphore-preflight`) |
 
 ## Diagnostic playbook for the agent
 
@@ -164,7 +166,7 @@ Two non-obvious behaviors for the agent to remember:
 
 **"What changed between two deploys?"** → `sem-ai deploy history <target-id>` lists each promotion with workflow IDs and commits. Pick two SHAs and `git log A..B`.
 
-**"Promotion shows as failed with no block output"** → likely a **pre-flight check** failure at init time. The pipeline never reached the blocks. Inspect the init job for the failure message; remediation is in Semaphore Settings, not YAML.
+**"Promotion shows as failed with no block output"** → likely a **pre-flight check** failure at init time. The pipeline never reached the blocks. Inspect the init job for the failure message, then read the check that ran with `sem-ai pfc show [--project <name>]`. Remediation is at the org/project level, not YAML — hand off to the `semaphore-preflight` skill.
 
 ## Boundaries
 

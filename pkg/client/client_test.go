@@ -816,3 +816,131 @@ func TestRetryExhaustedPreservesTheStatus(t *testing.T) {
 		t.Errorf("StatusCode = %d, want 429 — a caller cannot tell a throttle from a fault without it", httpErr.StatusCode)
 	}
 }
+
+// ---- collection-scoped PATCH / DELETE with query params ---------------------
+
+func TestPatchWithParamsURLAndBody(t *testing.T) {
+	var gotMethod, gotPath, gotQuery string
+	var gotBody []byte
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotMethod, gotPath, gotQuery = r.Method, r.URL.Path, r.URL.RawQuery
+		gotBody, _ = io.ReadAll(r.Body)
+		w.WriteHeader(200)
+		w.Write([]byte(`{}`))
+	}))
+	defer srv.Close()
+
+	host := strings.TrimPrefix(srv.URL, "http://")
+	c := newTestClient(host, "tok")
+
+	params := url.Values{"project_id": {"proj-abc"}}
+	_, err := c.PatchWithParams("pre_flight_checks", params, []byte(`{"commands":["make lint"]}`))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if gotMethod != "PATCH" {
+		t.Errorf("method = %q, want PATCH", gotMethod)
+	}
+	if gotPath != "/api/v1alpha/pre_flight_checks" {
+		t.Errorf("path = %q, want /api/v1alpha/pre_flight_checks", gotPath)
+	}
+	if gotQuery != "project_id=proj-abc" {
+		t.Errorf("query = %q, want project_id=proj-abc", gotQuery)
+	}
+	if string(gotBody) != `{"commands":["make lint"]}` {
+		t.Errorf("body = %q, want the JSON spec", string(gotBody))
+	}
+}
+
+func TestPatchWithParamsNoParamsLeavesQueryEmpty(t *testing.T) {
+	var gotPath, gotQuery string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotPath, gotQuery = r.URL.Path, r.URL.RawQuery
+		w.WriteHeader(200)
+		w.Write([]byte(`{}`))
+	}))
+	defer srv.Close()
+
+	host := strings.TrimPrefix(srv.URL, "http://")
+	c := newTestClient(host, "tok")
+
+	_, err := c.PatchWithParams("pre_flight_checks", nil, []byte(`{}`))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if gotPath != "/api/v1alpha/pre_flight_checks" {
+		t.Errorf("path = %q, want /api/v1alpha/pre_flight_checks", gotPath)
+	}
+	if gotQuery != "" {
+		t.Errorf("query = %q, want empty", gotQuery)
+	}
+}
+
+func TestDeletePathWithParams(t *testing.T) {
+	var gotMethod, gotPath, gotQuery string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotMethod, gotPath, gotQuery = r.Method, r.URL.Path, r.URL.RawQuery
+		w.WriteHeader(200)
+		w.Write([]byte(`{}`))
+	}))
+	defer srv.Close()
+
+	host := strings.TrimPrefix(srv.URL, "http://")
+	c := newTestClient(host, "tok")
+
+	_, err := c.DeletePathWithParams("pre_flight_checks", url.Values{"project_id": {"proj-abc"}})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if gotMethod != "DELETE" {
+		t.Errorf("method = %q, want DELETE", gotMethod)
+	}
+	if gotPath != "/api/v1alpha/pre_flight_checks" {
+		t.Errorf("path = %q, want /api/v1alpha/pre_flight_checks", gotPath)
+	}
+	if gotQuery != "project_id=proj-abc" {
+		t.Errorf("query = %q, want project_id=proj-abc", gotQuery)
+	}
+}
+
+func TestListWithParamsEmptyParamsHasNoTrailingQuestionMark(t *testing.T) {
+	var gotURI string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotURI = r.RequestURI
+		w.WriteHeader(200)
+		w.Write([]byte(`{}`))
+	}))
+	defer srv.Close()
+
+	host := strings.TrimPrefix(srv.URL, "http://")
+	c := newTestClient(host, "tok")
+
+	_, err := c.ListWithParams("pre_flight_checks", url.Values{})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if gotURI != "/api/v1alpha/pre_flight_checks" {
+		t.Errorf("request URI = %q, want /api/v1alpha/pre_flight_checks", gotURI)
+	}
+}
+
+func TestListAllReturnsStatusErrorOnNon200(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusForbidden)
+		_, _ = w.Write([]byte(`{"message":"forbidden"}`))
+	}))
+	defer srv.Close()
+
+	_, err := newTestClient(strings.TrimPrefix(srv.URL, "http://"), "tok").ListAll("projects", nil)
+	var statusErr *StatusError
+	if !errors.As(err, &statusErr) || statusErr.StatusCode != http.StatusForbidden {
+		t.Fatalf("err = %v, want *StatusError with 403", err)
+	}
+	if got, want := err.Error(), `API returned 403: {"message":"forbidden"}`; got != want {
+		t.Errorf("Error() = %q, want unchanged message %q", got, want)
+	}
+}

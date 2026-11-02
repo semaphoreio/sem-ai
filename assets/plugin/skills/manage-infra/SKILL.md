@@ -33,7 +33,7 @@ sem-ai agent delete <type-name>     # delete type
 ## Scheduled tasks
 ```bash
 sem-ai task list --project <p>
-sem-ai task show <id>               # details + recent triggers
+sem-ai task show <id>               # details + recent triggers + skip_*_notifications flags
 sem-ai task run <id>                # trigger now
 sem-ai task delete <id>
 
@@ -45,8 +45,17 @@ sem-ai task run <id> --param KEY=VALUE [--param ...] \
 
 # Create with parameter definitions: bare NAME = required,
 # NAME=DEFAULT = optional with a default value.
+# The skip flags silence Git provider commit statuses for pipelines the task
+# starts on schedule / manually (Run now, API, CLI); reruns included.
+# Push/PR pipelines always report. Changes take up to 5 min to apply.
 sem-ai task create <name> --branch main --file <path> [--cron "<expr>"] \
-  [--param-def NAME] [--param-def NAME=DEFAULT]
+  [--param-def NAME] [--param-def NAME=DEFAULT] \
+  [--skip-scheduled-run-notifications] [--skip-manual-run-notifications]
+
+# Change the skip flags on an existing task (keeps its ID and history).
+# Each flag takes true/false; omit it to keep the current value.
+sem-ai task update <id> [--skip-scheduled-run-notifications true|false] \
+  [--skip-manual-run-notifications true|false]
 ```
 
 ## Artifacts

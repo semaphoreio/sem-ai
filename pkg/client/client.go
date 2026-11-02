@@ -144,7 +144,28 @@ func (c *Client) List(kind string) (*Response, error) {
 
 // ListWithParams fetches with query params, returns headers for pagination.
 func (c *Client) ListWithParams(kind string, params url.Values) (*Response, error) {
-	return c.doWithRetry("GET", c.apiURL(fmt.Sprintf("%s?%s", kind, params.Encode())), nil)
+	return c.doWithRetry("GET", c.apiURL(pathWithParams(kind, params)), nil)
+}
+
+// pathWithParams appends an encoded query string to a path, leaving the path
+// untouched when there are no params (so a scope-less collection call does not
+// end in a bare "?").
+func pathWithParams(path string, params url.Values) string {
+	if len(params) == 0 {
+		return path
+	}
+	return fmt.Sprintf("%s?%s", path, params.Encode())
+}
+
+// StatusError is returned by ListAll when a page comes back non-200, so
+// callers can tell an HTTP answer apart from a transport failure.
+type StatusError struct {
+	StatusCode int
+	Body       []byte
+}
+
+func (e *StatusError) Error() string {
+	return fmt.Sprintf("API returned %d: %s", e.StatusCode, string(e.Body))
 }
 
 // ListAll auto-paginates using link header (rel="next") or x-has-more.
@@ -171,7 +192,7 @@ func (c *Client) ListAll(kind string, params url.Values, stopFn ...func([]json.R
 			return nil, err
 		}
 		if resp.StatusCode != 200 {
-			return nil, fmt.Errorf("API returned %d: %s", resp.StatusCode, string(resp.Body))
+			return nil, &StatusError{StatusCode: resp.StatusCode, Body: resp.Body}
 		}
 
 		var items []json.RawMessage
@@ -237,6 +258,12 @@ func (c *Client) Patch(kind, id string, body []byte) (*Response, error) {
 	return c.doWithRetry("PATCH", c.apiURL(fmt.Sprintf("%s/%s", kind, id)), body)
 }
 
+// PatchWithParams sends a PATCH request to a collection path (no resource id),
+// with optional query parameters.
+func (c *Client) PatchWithParams(kind string, params url.Values, body []byte) (*Response, error) {
+	return c.doWithRetry("PATCH", c.apiURL(pathWithParams(kind, params)), body)
+}
+
 // Delete sends a DELETE request.
 func (c *Client) Delete(kind, id string) (*Response, error) {
 	return c.doWithRetry("DELETE", c.apiURL(fmt.Sprintf("%s/%s", kind, id)), nil)
@@ -245,6 +272,12 @@ func (c *Client) Delete(kind, id string) (*Response, error) {
 // DeletePath sends a DELETE request to a custom path under /api/{version}/.
 func (c *Client) DeletePath(path string) (*Response, error) {
 	return c.doWithRetry("DELETE", c.apiURL(path), nil)
+}
+
+// DeletePathWithParams sends a DELETE request to a collection path (no resource
+// id), with optional query parameters.
+func (c *Client) DeletePathWithParams(path string, params url.Values) (*Response, error) {
+	return c.doWithRetry("DELETE", c.apiURL(pathWithParams(path, params)), nil)
 }
 
 // DeleteWithParams sends a DELETE request with query parameters.

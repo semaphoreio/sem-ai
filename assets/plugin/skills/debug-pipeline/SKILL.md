@@ -81,4 +81,5 @@ sem-ai test summary --pipeline <id>  # verify
 | Pipeline stuck `initializing` | YAML error | `sem-ai yaml validate --file .semaphore/semaphore.yml` |
 | `result_reason: "stuck"` | No agent available | `sem-ai agent types` |
 | All blocks empty | Compile failed | `sem-ai troubleshoot pipeline <id>` |
+| Failed pipeline, no blocks ever scheduled | Pre-flight check failed at init | `sem-ai pfc show [--project <name>]`, then the `semaphore-preflight` skill |
 | `cache` errors | Cache not configured | Environment issue, not code |
