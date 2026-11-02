@@ -388,17 +388,19 @@ func (c *Client) GetRaw(rawURL string) (*Response, error) {
 
 // GetExternal fetches an external URL without auth headers (e.g. signed GCS URLs).
 func (c *Client) GetExternal(rawURL string) (*Response, error) {
-	log.Printf("GET (external) %s", rawURL)
-	resp, err := c.httpClient.Get(rawURL)
-	if err != nil {
-		return nil, err
-	}
-	defer resp.Body.Close()
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return nil, err
-	}
-	return &Response{Body: body, StatusCode: resp.StatusCode, Headers: resp.Header}, nil
+	return withRetry(func() (*Response, error) {
+		log.Printf("GET (external) %s", rawURL)
+		resp, err := c.httpClient.Get(rawURL)
+		if err != nil {
+			return nil, err
+		}
+		defer resp.Body.Close()
+		body, err := io.ReadAll(resp.Body)
+		if err != nil {
+			return nil, err
+		}
+		return &Response{Body: body, StatusCode: resp.StatusCode, Headers: resp.Header}, nil
+	})
 }
 
 // HTTPError is returned when retries are exhausted against a response that
@@ -444,6 +446,10 @@ func parseRetryAfter(h http.Header, now time.Time) time.Duration {
 }
 
 func (c *Client) doWithRetry(method, u string, body []byte) (*Response, error) {
+	return withRetry(func() (*Response, error) { return c.do(method, u, body) })
+}
+
+func withRetry(send func() (*Response, error)) (*Response, error) {
 	var lastErr error
 	var lastStatus int
 	var lastBody string
@@ -462,7 +468,7 @@ func (c *Client) doWithRetry(method, u string, body []byte) (*Response, error) {
 			time.Sleep(delay)
 		}
 
-		resp, err := c.do(method, u, body)
+		resp, err := send()
 		if err != nil {
 			lastErr = err
 			continue

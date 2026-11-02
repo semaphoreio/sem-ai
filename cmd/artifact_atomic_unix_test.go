@@ -29,14 +29,14 @@ func TestPullReplacesTheDestinationInodeRatherThanTruncatingInPlace(t *testing.T
 		t.Fatalf("walk: %v", err)
 	}
 
-	if r := pullFiles(client.New(), walkRes.Files)[0]; r.Status != "downloaded" {
+	if r := pullAll(walkRes.Files)[0]; r.Status != "downloaded" {
 		t.Fatalf("first pull: %s %s", r.Status, r.Error)
 	}
 	dest := filepath.Join(dir, "reports", "junit.json")
 	before := inodeOf(t, dest)
 
 	artifactPullForce = true
-	if r := pullFiles(client.New(), walkRes.Files)[0]; r.Status != "downloaded" {
+	if r := pullAll(walkRes.Files)[0]; r.Status != "downloaded" {
 		t.Fatalf("forced pull: %s %s", r.Status, r.Error)
 	}
 	after := inodeOf(t, dest)

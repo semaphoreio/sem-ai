@@ -35,6 +35,8 @@ type fakeStore struct {
 	// injectDirs appends extra directory entries to a path's listing, so a
 	// store can be made to report a cycle the real one should never produce.
 	injectDirs map[string][]string
+	failSigned int
+	failBlob   map[string]int
 }
 
 type artifactAPI struct {
@@ -97,6 +99,14 @@ func newArtifactAPI(t *testing.T, store fakeStore) *artifactAPI {
 		api.signedCalls++
 		api.mu.Unlock()
 
+		if store.failSigned != 0 {
+			if store.failSigned == http.StatusTooManyRequests {
+				w.Header().Set("Retry-After", "300")
+			}
+			w.WriteHeader(store.failSigned)
+			_, _ = w.Write([]byte(fakeFailBody(store.failSigned)))
+			return
+		}
 		if _, ok := store.files[path]; !ok {
 			w.WriteHeader(http.StatusNotFound)
 			_, _ = w.Write([]byte("not found"))
@@ -119,6 +129,10 @@ func newArtifactAPI(t *testing.T, store fakeStore) *artifactAPI {
 		data, ok := store.files[path]
 		if !ok {
 			w.WriteHeader(http.StatusNotFound)
+			return
+		}
+		if status, fails := store.failBlob[path]; fails {
+			w.WriteHeader(status)
 			return
 		}
 		if api.onBlob != nil {
@@ -189,6 +203,11 @@ func fakeFailBody(status int) string {
 		return artifactsGateBody
 	}
 	return "listing unavailable"
+}
+
+func pullAll(files []artifactEntry) []pullResult {
+	results, _ := pullFiles(client.New(), files)
+	return results
 }
 
 func gzipped(t *testing.T, data []byte) []byte {
@@ -418,7 +437,7 @@ func TestPullWritesMirroredTree(t *testing.T) {
 		t.Fatalf("walk: %v", err)
 	}
 	files := walkRes.Files
-	results := pullFiles(client.New(), files)
+	results := pullAll(files)
 
 	if len(results) != len(store.files) {
 		t.Fatalf("got %d results, want %d", len(results), len(store.files))
@@ -464,7 +483,7 @@ func TestPullKeepsGzBytesAndInflatesHiddenGzip(t *testing.T) {
 		t.Fatalf("walk: %v", err)
 	}
 	files := walkRes.Files
-	for _, r := range pullFiles(client.New(), files) {
+	for _, r := range pullAll(files) {
 		if r.Status != "downloaded" {
 			t.Fatalf("%s: %s %s", r.Path, r.Status, r.Error)
 		}
@@ -499,14 +518,14 @@ func TestPullSkipsExistingUnlessForced(t *testing.T) {
 	}
 	files := walkRes.Files
 
-	first := pullFiles(client.New(), files)
+	first := pullAll(files)
 	for _, r := range first {
 		if r.Status != "downloaded" {
 			t.Fatalf("first pass %s: %s %s", r.Path, r.Status, r.Error)
 		}
 	}
 
-	second := pullFiles(client.New(), files)
+	second := pullAll(files)
 	for _, r := range second {
 		if r.Status != "skipped" {
 			t.Errorf("second pass %s: got %q, want skipped", r.Path, r.Status)
@@ -514,7 +533,7 @@ func TestPullSkipsExistingUnlessForced(t *testing.T) {
 	}
 
 	artifactPullForce = true
-	third := pullFiles(client.New(), files)
+	third := pullAll(files)
 	for _, r := range third {
 		if r.Status != "downloaded" {
 			t.Errorf("forced pass %s: got %q, want downloaded", r.Path, r.Status)
@@ -533,7 +552,7 @@ func TestPullReportsPerFileFailureWithoutAbortingTheRest(t *testing.T) {
 		{Path: "does/not/exist.json", Name: "exist.json"},
 		{Path: "../escape.json", Name: "escape.json"},
 	}
-	results := pullFiles(client.New(), files)
+	results := pullAll(files)
 
 	if results[0].Status != "downloaded" {
 		t.Errorf("real file: got %q (%s)", results[0].Status, results[0].Error)
@@ -693,7 +712,7 @@ func TestPullKeepsBytesForEveryGzipNamedSuffix(t *testing.T) {
 	if err != nil {
 		t.Fatalf("walk: %v", err)
 	}
-	for _, r := range pullFiles(client.New(), walkRes.Files) {
+	for _, r := range pullAll(walkRes.Files) {
 		if r.Status != "downloaded" {
 			t.Fatalf("%s: %s %s", r.Path, r.Status, r.Error)
 		}
@@ -753,7 +772,7 @@ func TestPullFailsTheFileWhenDecompressionFails(t *testing.T) {
 	}
 
 	seenPaths := map[string]bool{}
-	for _, r := range pullFiles(client.New(), walkRes.Files) {
+	for _, r := range pullAll(walkRes.Files) {
 		seenPaths[r.Path] = true
 		switch r.Path {
 		case "reports/junit.json":
@@ -788,7 +807,7 @@ func TestPullLeavesNoPartialFilesBehind(t *testing.T) {
 	if err != nil {
 		t.Fatalf("walk: %v", err)
 	}
-	for _, r := range pullFiles(client.New(), walkRes.Files) {
+	for _, r := range pullAll(walkRes.Files) {
 		if r.Status != "downloaded" {
 			t.Fatalf("%s: %s %s", r.Path, r.Status, r.Error)
 		}
@@ -1296,7 +1315,7 @@ func TestPullReportsDownloadFailuresAndWalkGapsTogether(t *testing.T) {
 	files := append(walkRes.Files, artifactEntry{Path: "timing/ghost.json", Name: "ghost.json"})
 
 	var failed int
-	for _, r := range pullFiles(client.New(), files) {
+	for _, r := range pullAll(files) {
 		if r.Status == "failed" {
 			failed++
 		}
@@ -1667,7 +1686,7 @@ func TestPullRefusesToSkipANonRegularDestination(t *testing.T) {
 	}
 
 	var got pullResult
-	for _, r := range pullFiles(client.New(), []artifactEntry{{Path: "summary.json", Name: "summary.json"}}) {
+	for _, r := range pullAll([]artifactEntry{{Path: "summary.json", Name: "summary.json"}}) {
 		got = r
 	}
 
@@ -1754,7 +1773,7 @@ func TestPullRefusesAPathThatWouldLeaveTheOutputDirectory(t *testing.T) {
 		{Path: ".. /escape.json", Name: "escape.json"},
 		{Path: ".../escape.json", Name: "escape.json"},
 	}
-	for _, r := range pullFiles(client.New(), hostile) {
+	for _, r := range pullAll(hostile) {
 		if r.Status != "failed" {
 			t.Errorf("%q: status %q, want failed", r.Path, r.Status)
 		}
@@ -1852,7 +1871,7 @@ func TestPullNeverExceedsItsConcurrencyLimit(t *testing.T) {
 	if err != nil {
 		t.Fatalf("walk: %v", err)
 	}
-	for _, r := range pullFiles(client.New(), walkRes.Files) {
+	for _, r := range pullAll(walkRes.Files) {
 		if r.Status != "downloaded" {
 			t.Fatalf("%s: %s %s", r.Path, r.Status, r.Error)
 		}
@@ -1971,5 +1990,57 @@ func TestDefaultCapLeavesRoomInTheOrganisationBudget(t *testing.T) {
 	if defaultMaxWalkRequests > ceiling {
 		t.Errorf("default cap is %d; keep it at or below %d so one command cannot exhaust the organization's budget",
 			defaultMaxWalkRequests, ceiling)
+	}
+}
+
+func TestPullStopsDownloadingOnceTheOrganizationRefuses(t *testing.T) {
+	files := map[string][]byte{}
+	for i := 0; i < pullConcurrency*25; i++ {
+		files[fmt.Sprintf("shard-%03d/result.json", i)] = []byte(`{"i":1}`)
+	}
+	store := fakeStore{
+		scope: "workflows", scopeID: "d0d0d0d0-1111-2222-3333-444444444444",
+		files: files, failSigned: http.StatusTooManyRequests,
+	}
+	api := newArtifactAPI(t, store)
+	t.Setenv(envMaxWalkRequests, "1000")
+
+	result, stderr, err := runPullCmd(t, "--scope", store.scope, "--id", store.scopeID, "--output-dir", t.TempDir())
+	if err == nil {
+		t.Fatal("a refused pull must not exit zero")
+	}
+
+	api.mu.Lock()
+	signed := api.signedCalls
+	api.mu.Unlock()
+	if signed > pullConcurrency {
+		t.Errorf("issued %d signed-URL requests into a refusal; at most the %d already in flight may land", signed, pullConcurrency)
+	}
+	notAttempted, _ := result["not_attempted"].(float64)
+	if int(notAttempted) < len(files)-pullConcurrency {
+		t.Errorf("not_attempted = %v, want at least %d", result["not_attempted"], len(files)-pullConcurrency)
+	}
+	if result["complete"] != false || result["status"] != "pulled_partial" {
+		t.Errorf("complete = %v status = %v, want false and pulled_partial", result["complete"], result["status"])
+	}
+	if !strings.Contains(stderr, "rate_limited") {
+		t.Errorf("stderr should report the rate limit as such, got %q", stderr)
+	}
+}
+
+func TestAStorageRefusalStaysPerFile(t *testing.T) {
+	store := nestedStore(t)
+	store.failBlob = map[string]int{"summary.json": http.StatusForbidden}
+	newArtifactAPI(t, store)
+
+	result, _, err := runPullCmd(t, "--scope", store.scope, "--id", store.scopeID, "--output-dir", t.TempDir())
+	if err == nil {
+		t.Fatal("a failed download must not exit zero")
+	}
+	if got, _ := result["downloaded"].(float64); int(got) != len(store.files)-1 {
+		t.Errorf("downloaded = %v, want %d: a 403 from storage is about one signed URL, not the organization", result["downloaded"], len(store.files)-1)
+	}
+	if _, stopped := result["not_attempted"]; stopped {
+		t.Errorf("a storage refusal stopped the pull: %v", result)
 	}
 }

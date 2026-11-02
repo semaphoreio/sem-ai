@@ -415,12 +415,22 @@ func downloadArtifact(c *client.Client, scope, scopeID, path string) ([]byte, er
 
 	dlResp, err := c.GetExternal(signedResp.Items[0].URL)
 	if err != nil {
-		return nil, err
+		return nil, &storageError{err: err}
 	}
 	if dlResp.StatusCode != 200 {
-		return nil, &apiError{Status: dlResp.StatusCode}
+		return nil, &storageError{err: &apiError{Status: dlResp.StatusCode}}
 	}
 	return dlResp.Body, nil
+}
+
+type storageError struct{ err error }
+
+func (e *storageError) Error() string { return "storage: " + e.err.Error() }
+func (e *storageError) Unwrap() error { return e.err }
+
+func refusedByOrganization(err error) bool {
+	var se *storageError
+	return !errors.As(err, &se) && orgWideRefusal(statusOf(err))
 }
 
 var (
@@ -654,9 +664,9 @@ Artifacts stored gzipped but not named with a gzip suffix (.gz, .tgz, .svgz,
 			return incompleteWalk(walk, "dry run")
 		}
 
-		results := pullFiles(c, files)
+		results, refused := pullFiles(c, files)
 
-		var downloaded, skipped, failed int
+		var downloaded, skipped, failed, notAttempted int
 		var totalBytes int64
 		for _, r := range results {
 			switch r.Status {
@@ -665,6 +675,8 @@ Artifacts stored gzipped but not named with a gzip suffix (.gz, .tgz, .svgz,
 				totalBytes += r.Size
 			case "skipped":
 				skipped++
+			case "not_attempted":
+				notAttempted++
 			default:
 				failed++
 			}
@@ -691,6 +703,10 @@ Artifacts stored gzipped but not named with a gzip suffix (.gz, .tgz, .svgz,
 		if failed > 0 {
 			problems = append(problems, fmt.Sprintf("%d of %d artifacts failed to download", failed, len(results)))
 		}
+		if refused != nil {
+			result["not_attempted"] = notAttempted
+			problems = append(problems, fmt.Sprintf("the organization refused a download (%v), so %d of %d artifacts were not attempted", refused, notAttempted, len(results)))
+		}
 		if len(problems) > 0 {
 			result["complete"] = false
 			result["status"] = "pulled_partial"
@@ -698,6 +714,10 @@ Artifacts stored gzipped but not named with a gzip suffix (.gz, .tgz, .svgz,
 		}
 		output.Result(result)
 
+		if refused != nil {
+			reportArtifactError(refused)
+			return refused
+		}
 		if len(problems) == 0 {
 			return nil
 		}
@@ -714,35 +734,54 @@ Artifacts stored gzipped but not named with a gzip suffix (.gz, .tgz, .svgz,
 	},
 }
 
-func pullFiles(c *client.Client, files []artifactEntry) []pullResult {
+func pullFiles(c *client.Client, files []artifactEntry) ([]pullResult, error) {
 	results := make([]pullResult, len(files))
 	sem := make(chan struct{}, pullConcurrency)
 	var wg sync.WaitGroup
+	var mu sync.Mutex
+	var refused error
 
 	for i, f := range files {
 		// Acquired before the goroutine is spawned: acquiring inside would
 		// create one goroutine per file up front and only then throttle
 		// them, which for a large tree is a lot of stacks doing nothing.
 		sem <- struct{}{}
+		mu.Lock()
+		stop := refused
+		mu.Unlock()
+		if stop != nil {
+			<-sem
+			results[i] = pullResult{Path: f.Path, Status: "not_attempted", Error: stop.Error()}
+			continue
+		}
 		wg.Add(1)
 		go func(i int, f artifactEntry) {
 			defer wg.Done()
 			defer func() { <-sem }()
-			results[i] = pullOne(c, f)
+			var err error
+			results[i], err = pullOne(c, f)
+			if err != nil && refusedByOrganization(err) {
+				mu.Lock()
+				if refused == nil {
+					refused = err
+				}
+				mu.Unlock()
+			}
 		}(i, f)
 	}
 	wg.Wait()
-	return results
+	return results, refused
 }
 
-func pullOne(c *client.Client, f artifactEntry) pullResult {
+func pullOne(c *client.Client, f artifactEntry) (pullResult, error) {
 	rel, err := safeRelativePath(f.Path)
 	if err != nil {
-		return pullResult{Path: f.Path, Status: "failed", Error: err.Error()}
+		return pullResult{Path: f.Path, Status: "failed", Error: err.Error()}, err
 	}
 	dest := filepath.Join(artifactPullOutputDir, rel)
 	if !containedIn(artifactPullOutputDir, dest) {
-		return pullResult{Path: f.Path, Status: "failed", Error: fmt.Sprintf("unsafe path %q", f.Path)}
+		err := fmt.Errorf("unsafe path %q", f.Path)
+		return pullResult{Path: f.Path, Status: "failed", Error: err.Error()}, err
 	}
 
 	if !artifactPullForce {
@@ -753,34 +792,31 @@ func pullOne(c *client.Client, f artifactEntry) pullResult {
 		// zero while nothing local holds the content.
 		if info, statErr := os.Lstat(dest); statErr == nil {
 			if !info.Mode().IsRegular() {
-				return pullResult{
-					Path:   f.Path,
-					Status: "failed",
-					Error:  fmt.Sprintf("%s exists and is not a regular file (%s)", dest, info.Mode().Type()),
-				}
+				err := fmt.Errorf("%s exists and is not a regular file (%s)", dest, info.Mode().Type())
+				return pullResult{Path: f.Path, Status: "failed", Error: err.Error()}, err
 			}
-			return pullResult{Path: f.Path, Output: dest, Status: "skipped"}
+			return pullResult{Path: f.Path, Output: dest, Status: "skipped"}, nil
 		}
 	}
 
 	data, err := downloadArtifact(c, artifactPullScope, artifactPullScopeID, f.Path)
 	if err != nil {
-		return pullResult{Path: f.Path, Status: "failed", Error: err.Error()}
+		return pullResult{Path: f.Path, Status: "failed", Error: err.Error()}, err
 	}
 	if !pathAdvertisesGzip(f.Path) {
 		data, err = gunzip(data)
 		if err != nil {
-			return pullResult{Path: f.Path, Status: "failed", Error: err.Error()}
+			return pullResult{Path: f.Path, Status: "failed", Error: err.Error()}, err
 		}
 	}
 
 	if err := os.MkdirAll(filepath.Dir(dest), 0755); err != nil {
-		return pullResult{Path: f.Path, Status: "failed", Error: err.Error()}
+		return pullResult{Path: f.Path, Status: "failed", Error: err.Error()}, err
 	}
 	if err := writeFileAtomic(dest, data); err != nil {
-		return pullResult{Path: f.Path, Status: "failed", Error: err.Error()}
+		return pullResult{Path: f.Path, Status: "failed", Error: err.Error()}, err
 	}
-	return pullResult{Path: f.Path, Output: dest, Size: int64(len(data)), Status: "downloaded"}
+	return pullResult{Path: f.Path, Output: dest, Size: int64(len(data)), Status: "downloaded"}, nil
 }
 
 // writeFileAtomic writes through a temporary file in the destination

@@ -944,3 +944,49 @@ func TestListAllReturnsStatusErrorOnNon200(t *testing.T) {
 		t.Errorf("Error() = %q, want unchanged message %q", got, want)
 	}
 }
+
+func TestGetExternalRetriesTransientFailuresWithoutAuth(t *testing.T) {
+	var calls int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("Authorization") != "" {
+			t.Errorf("attempt %d sent an Authorization header to an external URL", atomic.LoadInt32(&calls)+1)
+		}
+		if atomic.AddInt32(&calls, 1) == 1 {
+			w.WriteHeader(http.StatusServiceUnavailable)
+			return
+		}
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte("blob"))
+	}))
+	defer srv.Close()
+
+	resp, err := newTestClient("unused.test", "tok").GetExternal(srv.URL + "/blob")
+	if err != nil {
+		t.Fatalf("a transient 503 should be retried, got %v", err)
+	}
+	if resp.StatusCode != http.StatusOK || string(resp.Body) != "blob" {
+		t.Errorf("got %d %q, want 200 blob", resp.StatusCode, resp.Body)
+	}
+	if n := atomic.LoadInt32(&calls); n != 2 {
+		t.Errorf("made %d requests, want 2", n)
+	}
+}
+
+func TestGetExternalReportsALongRetryAfter(t *testing.T) {
+	var calls int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		atomic.AddInt32(&calls, 1)
+		w.Header().Set("Retry-After", "300")
+		w.WriteHeader(http.StatusTooManyRequests)
+	}))
+	defer srv.Close()
+
+	_, err := newTestClient("unused.test", "tok").GetExternal(srv.URL + "/blob")
+	var httpErr *HTTPError
+	if !errors.As(err, &httpErr) || httpErr.StatusCode != http.StatusTooManyRequests || httpErr.RetryAfter != 300*time.Second {
+		t.Fatalf("err = %v, want *HTTPError 429 with RetryAfter 5m", err)
+	}
+	if n := atomic.LoadInt32(&calls); n != 1 {
+		t.Errorf("made %d requests inside a window it was told to sit out", n)
+	}
+}
