@@ -5,9 +5,11 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"os"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -1050,5 +1052,26 @@ func TestGetExternalTimeoutDoesNotCarryTheSignedURL(t *testing.T) {
 	}
 	if msg := err.Error(); strings.Contains(msg, "s3cr3t") || strings.Contains(msg, "?") {
 		t.Errorf("error leaks the signed URL: %q", msg)
+	}
+}
+
+func TestGetExternalLogsTheURLWithoutItsQuery(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer srv.Close()
+
+	var logged strings.Builder
+	log.SetOutput(&logged)
+	defer log.SetOutput(os.Stderr)
+
+	if _, err := newTestClient("unused.test", "tok").GetExternal(srv.URL + "/blob?X-Goog-Signature=s3cr3t"); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(logged.String(), srv.URL+"/blob") {
+		t.Fatalf("expected the request in the log, got %q", logged.String())
+	}
+	if strings.Contains(logged.String(), "s3cr3t") || strings.Contains(logged.String(), "?") {
+		t.Errorf("debug log leaks the signed URL: %q", logged.String())
 	}
 }

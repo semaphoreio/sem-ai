@@ -390,8 +390,9 @@ func (c *Client) GetRaw(rawURL string) (*Response, error) {
 
 // GetExternal fetches an external URL without auth headers (e.g. signed GCS URLs).
 func (c *Client) GetExternal(rawURL string) (*Response, error) {
+	withoutQuery, _, _ := strings.Cut(rawURL, "?")
 	return withRetry(func() (*Response, error) {
-		log.Printf("GET (external) %s", rawURL)
+		log.Printf("GET (external) %s", withoutQuery)
 		resp, err := c.httpClient.Get(rawURL)
 		if err != nil {
 			return nil, externalError(err)
