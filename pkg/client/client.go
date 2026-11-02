@@ -10,6 +10,7 @@ import (
 	"io"
 	"log"
 	"math"
+	"net"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -405,12 +406,22 @@ func (c *Client) GetExternal(rawURL string) (*Response, error) {
 }
 
 func externalError(err error) error {
+	var netErr net.Error
+	timeout := errors.As(err, &netErr) && netErr.Timeout()
 	var urlErr *url.Error
 	if errors.As(err, &urlErr) {
-		return urlErr.Err
+		err = urlErr.Err
+	}
+	if timeout {
+		return &noRetryError{err: err}
 	}
 	return err
 }
+
+type noRetryError struct{ err error }
+
+func (e *noRetryError) Error() string { return e.err.Error() }
+func (e *noRetryError) Unwrap() error { return e.err }
 
 // HTTPError is returned when retries are exhausted against a response that
 // carried a status. Without it the status is lost, and a caller cannot tell a
@@ -479,6 +490,10 @@ func withRetry(send func() (*Response, error)) (*Response, error) {
 
 		resp, err := send()
 		if err != nil {
+			var stop *noRetryError
+			if errors.As(err, &stop) {
+				return nil, stop.err
+			}
 			lastErr = err
 			continue
 		}

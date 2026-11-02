@@ -991,6 +991,33 @@ func TestGetExternalReportsALongRetryAfter(t *testing.T) {
 	}
 }
 
+func TestGetExternalDoesNotRetryATimeout(t *testing.T) {
+	var calls int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		atomic.AddInt32(&calls, 1)
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte("partial"))
+		w.(http.Flusher).Flush()
+		select {
+		case <-r.Context().Done():
+		case <-time.After(2 * time.Second):
+		}
+	}))
+	defer srv.Close()
+
+	c := newTestClient("unused.test", "tok")
+	c.httpClient.Timeout = 100 * time.Millisecond
+
+	_, err := c.GetExternal(srv.URL + "/blob")
+	var netErr interface{ Timeout() bool }
+	if !errors.As(err, &netErr) || !netErr.Timeout() {
+		t.Fatalf("err = %v, want a timeout", err)
+	}
+	if n := atomic.LoadInt32(&calls); n != 1 {
+		t.Errorf("made %d requests, want 1: a blob that timed out once would time out again", n)
+	}
+}
+
 func TestGetExternalErrorsDoNotCarryTheSignedURL(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}))
 	signedURL := srv.URL + "/blob?X-Goog-Signature=s3cr3t"
