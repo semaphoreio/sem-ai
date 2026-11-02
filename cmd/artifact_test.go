@@ -38,6 +38,7 @@ type fakeStore struct {
 	failSigned  int
 	failBlob    map[string]int
 	signAnyPath bool
+	signNothing bool
 }
 
 type artifactAPI struct {
@@ -106,6 +107,11 @@ func newArtifactAPI(t *testing.T, store fakeStore) *artifactAPI {
 			}
 			w.WriteHeader(store.failSigned)
 			_, _ = w.Write([]byte(fakeFailBody(store.failSigned)))
+			return
+		}
+		if _, ok := store.files[path]; !ok && store.signNothing {
+			w.WriteHeader(http.StatusOK)
+			_ = json.NewEncoder(w).Encode(map[string]any{"items": []any{}})
 			return
 		}
 		if _, ok := store.files[path]; !ok && !store.signAnyPath {
@@ -2092,5 +2098,23 @@ func TestGetOnADirectoryIsNamedWhenStorageAnswersThe404(t *testing.T) {
 	}
 	if reported["code"] != "is_directory" {
 		t.Errorf("code = %v, want is_directory: the API signs any path and storage answers the 404", reported["code"])
+	}
+}
+
+func TestGetOnADirectoryIsNamedWhenSigningReturnsNoURL(t *testing.T) {
+	store := nestedStore(t)
+	store.signNothing = true
+	newArtifactAPI(t, store)
+
+	stderr, err := runGetCmd(t, store, "test-results", filepath.Join(t.TempDir(), "out.json"))
+	if err == nil {
+		t.Fatal("get on a directory must fail")
+	}
+	var reported map[string]any
+	if jsonErr := json.Unmarshal([]byte(stderr), &reported); jsonErr != nil {
+		t.Fatalf("stderr is not structured (%v): %q", jsonErr, stderr)
+	}
+	if reported["code"] != "is_directory" {
+		t.Errorf("code = %v, want is_directory: an empty signed_url answer is a 404 too", reported["code"])
 	}
 }

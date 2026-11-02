@@ -410,7 +410,7 @@ func downloadArtifact(c *client.Client, scope, scopeID, path string) ([]byte, er
 		} `json:"items"`
 	}
 	if err := json.Unmarshal(resp.Body, &signedResp); err != nil || len(signedResp.Items) == 0 {
-		return nil, fmt.Errorf("artifact not found")
+		return nil, &apiError{Status: http.StatusNotFound, Body: "artifact not found"}
 	}
 
 	dlResp, err := c.GetExternal(signedResp.Items[0].URL)
