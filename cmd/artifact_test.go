@@ -2072,6 +2072,9 @@ func TestAStorageRefusalStaysPerFile(t *testing.T) {
 	if _, stopped := result["not_attempted"]; stopped {
 		t.Errorf("a storage refusal stopped the pull: %v", result)
 	}
+	if result["status"] != "pulled_partial" || result["complete"] != false {
+		t.Errorf("status = %v complete = %v, want pulled_partial and false", result["status"], result["complete"])
+	}
 }
 
 func TestGetOnADirectoryIsNamedWhenStorageAnswersThe404(t *testing.T) {
