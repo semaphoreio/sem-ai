@@ -204,12 +204,15 @@ type walkResult struct {
 	Unvisited int
 	// Cap is the listing budget this walk ran under, so the message a caller
 	// prints matches the limit actually applied.
-	Cap    int
-	Errors []walkError
+	Cap     int
+	Errors  []walkError
+	Refused error
 }
 
 // Incomplete reports whether the walk failed to see the whole tree.
-func (w walkResult) Incomplete() bool { return w.Truncated || len(w.Errors) > 0 }
+func (w walkResult) Incomplete() bool {
+	return w.Truncated || len(w.Errors) > 0 || w.Refused != nil
+}
 
 // problems describes each reason the walk fell short, for the error a caller
 // returns. A partial result that exits zero cannot be told apart from a
@@ -223,6 +226,10 @@ func (w walkResult) problems() []string {
 	if w.Truncated {
 		out = append(out, fmt.Sprintf("the walk stopped at the %d-listing cap with at least %d director%s unvisited (raise %s if the store is genuinely this large)",
 			w.Cap, w.Unvisited, map[bool]string{true: "y", false: "ies"}[w.Unvisited == 1], envMaxWalkRequests))
+	}
+	if w.Refused != nil {
+		out = append(out, fmt.Sprintf("the walk stopped when the organization was refused (%v) with at least %d director%s unvisited",
+			w.Refused, w.Unvisited, map[bool]string{true: "y", false: "ies"}[w.Unvisited == 1]))
 	}
 	return out
 }
@@ -287,7 +294,9 @@ func walkArtifacts(c *client.Client, scope, scopeID, root string) (walkResult, e
 			// is per-directory (a subtree removed by retention) or transient,
 			// and losing the whole walk to it is the bug this tolerates.
 			if orgWideRefusal(statusOf(err)) {
-				return walkResult{}, err
+				res.Refused = err
+				res.Unvisited = len(queue) + 1
+				break
 			}
 			res.Errors = append(res.Errors, walkError{Path: dir, Error: err.Error()})
 			continue
@@ -296,7 +305,7 @@ func walkArtifacts(c *client.Client, scope, scopeID, root string) (walkResult, e
 	}
 
 	sort.Slice(res.Files, func(a, b int) bool { return res.Files[a].Path < res.Files[b].Path })
-	return res, nil
+	return res, res.Refused
 }
 
 // incompleteWalk turns an incomplete walk into the error its command returns,
@@ -448,7 +457,7 @@ list one level deeper, or use --recursive to expand the whole tree at once.
 
 		if artifactRecursive {
 			walk, err := walkArtifacts(c, artifactScope, artifactScopeID, artifactListPath)
-			if err != nil {
+			if err != nil && walk.Refused == nil {
 				reportArtifactError(err)
 				return err
 			}
@@ -465,6 +474,10 @@ list one level deeper, or use --recursive to expand the whole tree at once.
 				result["message"] = strings.Join(walk.problems(), "; ")
 			}
 			output.Result(result)
+			if walk.Refused != nil {
+				reportArtifactError(walk.Refused)
+				return walk.Refused
+			}
 			return incompleteWalk(walk, "listing")
 		}
 
@@ -608,7 +621,7 @@ Artifacts stored gzipped but not named with a gzip suffix (.gz, .tgz, .svgz,
 		c := client.New()
 
 		walk, err := walkArtifacts(c, artifactPullScope, artifactPullScopeID, artifactPullPath)
-		if err != nil {
+		if err != nil && (walk.Refused == nil || !artifactPullDryRun) {
 			reportArtifactError(err)
 			return err
 		}
@@ -634,6 +647,10 @@ Artifacts stored gzipped but not named with a gzip suffix (.gz, .tgz, .svgz,
 				result["message"] = strings.Join(walk.problems(), "; ")
 			}
 			output.Result(result)
+			if walk.Refused != nil {
+				reportArtifactError(walk.Refused)
+				return walk.Refused
+			}
 			return incompleteWalk(walk, "dry run")
 		}
 

@@ -1375,12 +1375,19 @@ func TestWalkStopsImmediatelyOnAnOrganizationLevelRefusal(t *testing.T) {
 			}
 			api := newArtifactAPI(t, store)
 
-			_, err := walkArtifacts(client.New(), store.scope, store.scopeID, "")
+			walkRes, err := walkArtifacts(client.New(), store.scope, store.scopeID, "")
 			if err == nil {
 				t.Fatal("an org-level refusal must abort the walk, not be collected as a per-directory gap")
 			}
 			if statusOf(err) != status {
 				t.Errorf("status = %d, want %d", statusOf(err), status)
+			}
+			if len(walkRes.Files) != 1 || walkRes.Files[0].Path != "summary.json" {
+				t.Errorf("files = %v, want the root's summary.json kept", walkRes.Files)
+			}
+			if walkRes.Refused == nil || !walkRes.Incomplete() || walkRes.Unvisited < 1 {
+				t.Errorf("a refused walk must say so: refused=%v incomplete=%v unvisited=%d",
+					walkRes.Refused, walkRes.Incomplete(), walkRes.Unvisited)
 			}
 			// One root listing plus the first refusal. Continuing would
 			// repeat the identical refusal for every directory.
@@ -1388,6 +1395,89 @@ func TestWalkStopsImmediatelyOnAnOrganizationLevelRefusal(t *testing.T) {
 				t.Errorf("issued %d listings after a refusal that applies org-wide: %v", len(api.listCalls), api.listCalls)
 			}
 		})
+	}
+}
+
+func refuseEverySubdirectory(store *fakeStore) {
+	store.failList = map[string]int{
+		"test-results": http.StatusForbidden, "timing": http.StatusForbidden,
+		"agent": http.StatusForbidden, "compilation": http.StatusForbidden,
+	}
+}
+
+func TestRecursiveListPrintsWhatItFoundBeforeARefusal(t *testing.T) {
+	store := nestedStore(t)
+	refuseEverySubdirectory(&store)
+	newArtifactAPI(t, store)
+
+	prev := []any{artifactScope, artifactScopeID, artifactListPath, artifactRecursive}
+	t.Cleanup(func() {
+		artifactScope = prev[0].(string)
+		artifactScopeID = prev[1].(string)
+		artifactListPath = prev[2].(string)
+		artifactRecursive = prev[3].(bool)
+	})
+	artifactScope, artifactScopeID, artifactListPath, artifactRecursive = store.scope, store.scopeID, "", true
+
+	prevFormat := output.GetFormat()
+	output.SetFormat("json")
+	t.Cleanup(func() { output.SetFormat(prevFormat) })
+	var out, errOut bytes.Buffer
+	output.SetWriters(&out, &errOut)
+	t.Cleanup(func() { output.SetWriters(nil, nil) })
+
+	if err := artifactListCmd.RunE(artifactListCmd, nil); err == nil {
+		t.Fatal("a refused walk must not exit zero")
+	}
+
+	var result map[string]any
+	if err := json.Unmarshal(out.Bytes(), &result); err != nil {
+		t.Fatalf("stdout should carry the partial listing (%v): %q", err, out.String())
+	}
+	if got, _ := result["count"].(float64); got != 1 {
+		t.Errorf("count = %v, want 1 (summary.json, found before the refusal)", result["count"])
+	}
+	if result["complete"] != false {
+		t.Errorf("complete = %v, want false", result["complete"])
+	}
+
+	var reported map[string]any
+	if err := json.Unmarshal(errOut.Bytes(), &reported); err != nil {
+		t.Fatalf("stderr is not structured (%v): %q", err, errOut.String())
+	}
+	if reported["code"] != "feature_disabled" {
+		t.Errorf("code = %v, want feature_disabled: the refusal is reported as itself", reported["code"])
+	}
+}
+
+func TestDryRunPrintsWhatItFoundBeforeARefusalAndPullDownloadsNothing(t *testing.T) {
+	store := nestedStore(t)
+	refuseEverySubdirectory(&store)
+	api := newArtifactAPI(t, store)
+
+	result, stderr, err := runPullCmd(t, "--scope", store.scope, "--id", store.scopeID, "--output-dir", t.TempDir(), "--dry-run")
+	if err == nil {
+		t.Fatal("a refused dry run must not exit zero")
+	}
+	if got, _ := result["count"].(float64); got != 1 || result["complete"] != false {
+		t.Errorf("dry run: count = %v complete = %v, want 1 and false", result["count"], result["complete"])
+	}
+	if !strings.Contains(stderr, "feature_disabled") {
+		t.Errorf("dry run stderr should name the refusal, got %q", stderr)
+	}
+
+	dir := t.TempDir()
+	if _, _, err := runPullCmd(t, "--scope", store.scope, "--id", store.scopeID, "--output-dir", dir); err == nil {
+		t.Fatal("a refused pull must not exit zero")
+	}
+	api.mu.Lock()
+	signed := api.signedCalls
+	api.mu.Unlock()
+	if signed != 0 {
+		t.Errorf("issued %d signed-URL requests after the organization was refused", signed)
+	}
+	if entries, _ := os.ReadDir(dir); len(entries) != 0 {
+		t.Errorf("a refused pull wrote %d entries", len(entries))
 	}
 }
 
