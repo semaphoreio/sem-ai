@@ -34,9 +34,10 @@ type fakeStore struct {
 	failList map[string]int
 	// injectDirs appends extra directory entries to a path's listing, so a
 	// store can be made to report a cycle the real one should never produce.
-	injectDirs map[string][]string
-	failSigned int
-	failBlob   map[string]int
+	injectDirs  map[string][]string
+	failSigned  int
+	failBlob    map[string]int
+	signAnyPath bool
 }
 
 type artifactAPI struct {
@@ -107,7 +108,7 @@ func newArtifactAPI(t *testing.T, store fakeStore) *artifactAPI {
 			_, _ = w.Write([]byte(fakeFailBody(store.failSigned)))
 			return
 		}
-		if _, ok := store.files[path]; !ok {
+		if _, ok := store.files[path]; !ok && !store.signAnyPath {
 			w.WriteHeader(http.StatusNotFound)
 			_, _ = w.Write([]byte("not found"))
 			return
@@ -1123,7 +1124,7 @@ func TestGetKeepsGzipBytesWhenTheOutputNameSaysSo(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			out := filepath.Join(dir, tc.outputName)
-			if err := runGetCmd(t, store, tc.remotePath, out); err != nil {
+			if _, err := runGetCmd(t, store, tc.remotePath, out); err != nil {
 				t.Fatalf("get: %v", err)
 			}
 			got, err := os.ReadFile(out)
@@ -1137,7 +1138,7 @@ func TestGetKeepsGzipBytesWhenTheOutputNameSaysSo(t *testing.T) {
 	}
 }
 
-func runGetCmd(t *testing.T, store fakeStore, path, output_ string) error {
+func runGetCmd(t *testing.T, store fakeStore, path, output_ string) (string, error) {
 	t.Helper()
 	prev := []any{artifactGetScope, artifactGetScopeID, artifactGetPath, artifactGetOutput}
 	t.Cleanup(func() {
@@ -1156,7 +1157,12 @@ func runGetCmd(t *testing.T, store fakeStore, path, output_ string) error {
 	output.SetWriters(&out, &errOut)
 	t.Cleanup(func() { output.SetWriters(nil, nil) })
 
-	return artifactGetCmd.RunE(artifactGetCmd, nil)
+	prevFormat := output.GetFormat()
+	output.SetFormat("json")
+	t.Cleanup(func() { output.SetFormat(prevFormat) })
+
+	err := artifactGetCmd.RunE(artifactGetCmd, nil)
+	return errOut.String(), err
 }
 
 func TestWalkTerminatesOnADirectoryCycle(t *testing.T) {
@@ -1527,34 +1533,57 @@ func TestListPropagatesTheRealHTTPStatus(t *testing.T) {
 	}
 }
 
-func TestGetNamesTheGateWithoutSpendingAnExtraProbe(t *testing.T) {
+func TestGetReportsARefusalAsItselfWithoutAProbe(t *testing.T) {
+	for status, code := range map[int]string{
+		http.StatusForbidden:       "feature_disabled",
+		http.StatusTooManyRequests: "rate_limited",
+	} {
+		t.Run(code, func(t *testing.T) {
+			store := nestedStore(t)
+			store.failSigned = status
+			api := newArtifactAPI(t, store)
+
+			stderr, err := runGetCmd(t, store, "agent/job_logs.txt.gz", filepath.Join(t.TempDir(), "o.gz"))
+			if err == nil {
+				t.Fatal("a refused get must fail")
+			}
+			var reported map[string]any
+			if jsonErr := json.Unmarshal([]byte(stderr), &reported); jsonErr != nil {
+				t.Fatalf("stderr is not structured (%v): %q", jsonErr, stderr)
+			}
+			if reported["code"] != code {
+				t.Errorf("code = %v, want %s", reported["code"], code)
+			}
+			if got, _ := reported["status"].(float64); int(got) != status {
+				t.Errorf("status = %v, want %d", reported["status"], status)
+			}
+			api.mu.Lock()
+			listed := len(api.listCalls)
+			api.mu.Unlock()
+			if listed != 0 {
+				t.Errorf("probed %d listings after an organization-wide refusal", listed)
+			}
+		})
+	}
+}
+
+func TestGetOnAMissingFileReportsNotFound(t *testing.T) {
 	store := nestedStore(t)
-	store.failList = map[string]int{"agent/job_logs.txt.gz": http.StatusForbidden}
-	api := newArtifactAPI(t, store)
+	newArtifactAPI(t, store)
 
-	// The signed-URL endpoint is gated too, so the download fails first.
-	store.failList["*"] = 0
-	prev := []any{artifactGetScope, artifactGetScopeID, artifactGetPath, artifactGetOutput}
-	t.Cleanup(func() {
-		artifactGetScope = prev[0].(string)
-		artifactGetScopeID = prev[1].(string)
-		artifactGetPath = prev[2].(string)
-		artifactGetOutput = prev[3].(string)
-	})
-	artifactGetScope, artifactGetScopeID = store.scope, store.scopeID
-	artifactGetPath, artifactGetOutput = "missing/thing.json", filepath.Join(t.TempDir(), "o.json")
-
-	var out, errOut bytes.Buffer
-	output.SetWriters(&out, &errOut)
-	t.Cleanup(func() { output.SetWriters(nil, nil) })
-
-	before := len(api.listCalls)
-	if err := artifactGetCmd.RunE(artifactGetCmd, nil); err == nil {
+	stderr, err := runGetCmd(t, store, "missing/thing.json", filepath.Join(t.TempDir(), "o.json"))
+	if err == nil {
 		t.Fatal("expected an error for a missing artifact")
 	}
-	_ = before
-	if !strings.Contains(errOut.String(), "\"status\"") {
-		t.Errorf("error should carry a status, got %q", errOut.String())
+	var reported map[string]any
+	if jsonErr := json.Unmarshal([]byte(stderr), &reported); jsonErr != nil {
+		t.Fatalf("stderr is not structured (%v): %q", jsonErr, stderr)
+	}
+	if reported["code"] != "download_error" {
+		t.Errorf("code = %v, want download_error", reported["code"])
+	}
+	if got, _ := reported["status"].(float64); got != http.StatusNotFound {
+		t.Errorf("status = %v, want 404", reported["status"])
 	}
 }
 
@@ -2042,5 +2071,23 @@ func TestAStorageRefusalStaysPerFile(t *testing.T) {
 	}
 	if _, stopped := result["not_attempted"]; stopped {
 		t.Errorf("a storage refusal stopped the pull: %v", result)
+	}
+}
+
+func TestGetOnADirectoryIsNamedWhenStorageAnswersThe404(t *testing.T) {
+	store := nestedStore(t)
+	store.signAnyPath = true
+	newArtifactAPI(t, store)
+
+	stderr, err := runGetCmd(t, store, "test-results", filepath.Join(t.TempDir(), "out.json"))
+	if err == nil {
+		t.Fatal("get on a directory must fail")
+	}
+	var reported map[string]any
+	if jsonErr := json.Unmarshal([]byte(stderr), &reported); jsonErr != nil {
+		t.Fatalf("stderr is not structured (%v): %q", jsonErr, stderr)
+	}
+	if reported["code"] != "is_directory" {
+		t.Errorf("code = %v, want is_directory: the API signs any path and storage answers the 404", reported["code"])
 	}
 }

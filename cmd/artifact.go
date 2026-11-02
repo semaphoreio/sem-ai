@@ -526,10 +526,12 @@ var artifactGetCmd = &cobra.Command{
 
 		data, err := downloadArtifact(c, artifactGetScope, artifactGetScopeID, artifactGetPath)
 		if err != nil {
-			// Checked before the directory probe: that probe hits the same
-			// gate and would just spend a second request to learn nothing.
-			if artifactsAPIDisabled(err) {
+			if refusedByOrganization(err) {
 				reportArtifactError(err)
+				return err
+			}
+			if statusOf(err) != http.StatusNotFound {
+				output.Error("download_error", err.Error(), max(statusOf(err), 1))
 				return err
 			}
 			if entries, listErr := listArtifactPath(c, artifactGetScope, artifactGetScopeID, artifactGetPath); listErr == nil && len(entries) > 0 {
@@ -538,11 +540,7 @@ var artifactGetCmd = &cobra.Command{
 				output.Error("is_directory", msg, 400)
 				return fmt.Errorf("%s", msg)
 			}
-			status := statusOf(err)
-			if status == 0 {
-				status = 1
-			}
-			output.Error("download_error", err.Error(), status)
+			output.Error("download_error", err.Error(), http.StatusNotFound)
 			return err
 		}
 
