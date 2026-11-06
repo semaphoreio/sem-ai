@@ -266,8 +266,11 @@ Commands that run at pipeline initialization, before any block. One check per or
 
 | Command | Description |
 |---------|-------------|
-| `artifact list --scope jobs --id <id>` | List artifacts |
+| `artifact list --scope jobs --id <id>` | List artifacts at the top level |
+| `artifact list --scope jobs --id <id> --path <dir>` | List one directory deeper |
+| `artifact list --scope jobs --id <id> --recursive` | Flatten the whole tree to files |
 | `artifact get --scope jobs --id <id> --path <p>` | Download an artifact |
+| `artifact pull --scope workflows --id <id> -o <dir>` | Bulk download a tree to disk |
 
 ### Utility
 

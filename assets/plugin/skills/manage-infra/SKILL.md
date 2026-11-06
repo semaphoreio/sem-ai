@@ -59,11 +59,50 @@ sem-ai task update <id> [--skip-scheduled-run-notifications true|false] \
 ```
 
 ## Artifacts
+
+An artifact store is a tree. A bare `list` shows only its top level, where
+entries with `"is_directory": true` are directories — feed their `path` back
+through `--path` to go one level deeper, or skip the walking with `--recursive`.
+
 ```bash
 sem-ai artifact list --scope jobs --id <job-id>
 sem-ai artifact list --scope workflows --id <wf-id>
+
+# Browse nested paths.
+sem-ai artifact list --scope workflows --id <wf-id> --path test-results
+sem-ai artifact list --scope workflows --id <wf-id> --recursive   # files only
+
 sem-ai artifact get --scope jobs --id <job-id> --path <path> [--output file]
+
+# Bulk download. Mirrors the remote tree under --output-dir (default
+# ./artifacts-<id>, never the working directory), skips files already there
+# unless --force, and --dry-run lists without writing.
+sem-ai artifact pull --scope workflows --id <wf-id> --output-dir ./artifacts
+sem-ai artifact pull --scope workflows --id <wf-id> --path test-results -o ./tr
 ```
+
+`list --recursive`, `pull` and `pull --dry-run` share one rule: if the walk
+could not see the whole tree — a directory failed to list, or it stopped at
+the 500-listing cap (`SEM_AI_MAX_ARTIFACT_LISTINGS` raises it) — the command
+reports what it found on stdout and then exits **non-zero** and sets
+`"complete": false` in the payload. Key off `complete` — it is the one signal
+all three share; `status` additionally distinguishes `pulled_partial` from
+`dry_run_partial` for humans. Details come in `errors` and, for a capped walk,
+`truncated` + `unvisited_directories`. The files it did find are still
+written. Retrying does not recover missing directories; narrow with `--path`.
+
+A 401, 403 or 429 is different: it is the organization refusing, not one bad
+directory, so nothing more is attempted and the stderr `code` says why
+(`rate_limited` with the advised wait, `feature_disabled`, or `api_error`).
+Mid-walk, `list --recursive` and `pull --dry-run` still print what they found
+with `"complete": false`, but a real `pull` prints nothing on stdout and
+writes nothing. During the downloads, the files not yet started come back as
+`"status": "not_attempted"` rows, counted in `not_attempted`, next to the ones
+that did download. Wait it out or fix access before retrying; a failure
+fetching one file from storage stays that file's own.
+
+`get` needs a file path: pointed at a directory it fails with
+`"code": "is_directory"` and names the two commands that do work on one.
 
 ## Pipeline YAML
 ```bash

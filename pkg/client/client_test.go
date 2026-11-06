@@ -5,12 +5,15 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"os"
 	"strings"
 	"sync/atomic"
 	"testing"
+	"time"
 )
 
 // newTestClient creates a Client that points to the given test server host.
@@ -579,8 +582,8 @@ func TestResponseBodyAndStatus(t *testing.T) {
 
 func TestHTTPMethods(t *testing.T) {
 	tests := []struct {
-		name   string
-		fn     func(c *Client, srv *httptest.Server) (*Response, error)
+		name       string
+		fn         func(c *Client, srv *httptest.Server) (*Response, error)
 		wantMethod string
 	}{
 		{
@@ -689,6 +692,130 @@ func TestPostYAMLEndpointURL(t *testing.T) {
 	wantPath := "/api/v1alpha/yaml"
 	if gotPath != wantPath {
 		t.Errorf("path = %q, want %q", gotPath, wantPath)
+	}
+}
+
+// ---- Retry-After ---------------------------------------------------------------
+
+func TestParseRetryAfterAcceptsBothFormsRFC9110Allows(t *testing.T) {
+	now := time.Date(2026, 8, 21, 12, 0, 0, 0, time.UTC)
+	cases := []struct {
+		name, header string
+		want         time.Duration
+	}{
+		{"delay seconds", "120", 120 * time.Second},
+		{"one second", "1", time.Second},
+		{"http date in the future", now.Add(90 * time.Second).UTC().Format(http.TimeFormat), 90 * time.Second},
+		{"http date in the past", now.Add(-90 * time.Second).UTC().Format(http.TimeFormat), 0},
+		{"zero", "0", 0},
+		{"negative", "-5", 0},
+		{"garbage", "soon", 0},
+		{"absent", "", 0},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			h := http.Header{}
+			if tc.header != "" {
+				h.Set("Retry-After", tc.header)
+			}
+			// HTTP-date has one-second resolution, so allow a second of slack.
+			got := parseRetryAfter(h, now)
+			if diff := got - tc.want; diff > time.Second || diff < -time.Second {
+				t.Errorf("parseRetryAfter(%q) = %v, want %v", tc.header, got, tc.want)
+			}
+		})
+	}
+}
+
+func TestShortRetryAfterIsHonouredInsteadOfTheBackoffCurve(t *testing.T) {
+	var calls int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if atomic.AddInt32(&calls, 1) == 1 {
+			w.Header().Set("Retry-After", "1")
+			w.WriteHeader(429)
+			return
+		}
+		w.WriteHeader(200)
+		_, _ = w.Write([]byte(`{}`))
+	}))
+	defer srv.Close()
+
+	c := newTestClient(strings.TrimPrefix(srv.URL, "http://"), "tok")
+	start := time.Now()
+	resp, err := c.Get("items", "x")
+	elapsed := time.Since(start)
+
+	if err != nil {
+		t.Fatalf("a short Retry-After should be waited out, got %v", err)
+	}
+	if resp.StatusCode != 200 {
+		t.Errorf("status = %d, want 200", resp.StatusCode)
+	}
+	// The default first backoff is 100ms; honouring the header means ~1s.
+	if elapsed < 900*time.Millisecond {
+		t.Errorf("waited %v — the Retry-After header was ignored in favour of the backoff curve", elapsed)
+	}
+}
+
+func TestLongRetryAfterFailsFastAndReportsTheAdvisedWait(t *testing.T) {
+	var calls int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		atomic.AddInt32(&calls, 1)
+		w.Header().Set("Retry-After", "300")
+		w.WriteHeader(429)
+	}))
+	defer srv.Close()
+
+	c := newTestClient(strings.TrimPrefix(srv.URL, "http://"), "tok")
+	start := time.Now()
+	_, err := c.Get("items", "x")
+	elapsed := time.Since(start)
+
+	if err == nil {
+		t.Fatal("expected an error")
+	}
+	// Blocking for the full window would look like a hang, and eight
+	// concurrent workers doing it is worse than one clear error.
+	if elapsed > 5*time.Second {
+		t.Errorf("blocked for %v; a long Retry-After must fail fast", elapsed)
+	}
+	if n := atomic.LoadInt32(&calls); n != 1 {
+		t.Errorf("made %d requests; a window we were told to sit out must not be retried", n)
+	}
+
+	var httpErr *HTTPError
+	if !errors.As(err, &httpErr) {
+		t.Fatalf("error should be *HTTPError, got %T: %v", err, err)
+	}
+	if httpErr.StatusCode != 429 {
+		t.Errorf("StatusCode = %d, want 429", httpErr.StatusCode)
+	}
+	if httpErr.RetryAfter != 300*time.Second {
+		t.Errorf("RetryAfter = %v, want 5m0s", httpErr.RetryAfter)
+	}
+	if !strings.Contains(err.Error(), "retry after") {
+		t.Errorf("message should state the advised wait, got %q", err.Error())
+	}
+}
+
+func TestRetryExhaustedPreservesTheStatus(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(429)
+		_, _ = w.Write([]byte(`throttled`))
+	}))
+	defer srv.Close()
+
+	c := newTestClient(strings.TrimPrefix(srv.URL, "http://"), "tok")
+	_, err := c.Get("items", "x")
+	if err == nil {
+		t.Fatal("expected an error")
+	}
+	var httpErr *HTTPError
+	if !errors.As(err, &httpErr) {
+		t.Fatalf("status must survive retry exhaustion; got %T: %v", err, err)
+	}
+	if httpErr.StatusCode != 429 {
+		t.Errorf("StatusCode = %d, want 429 — a caller cannot tell a throttle from a fault without it", httpErr.StatusCode)
 	}
 }
 
@@ -817,5 +944,134 @@ func TestListAllReturnsStatusErrorOnNon200(t *testing.T) {
 	}
 	if got, want := err.Error(), `API returned 403: {"message":"forbidden"}`; got != want {
 		t.Errorf("Error() = %q, want unchanged message %q", got, want)
+	}
+}
+
+func TestGetExternalRetriesTransientFailuresWithoutAuth(t *testing.T) {
+	var calls int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("Authorization") != "" {
+			t.Errorf("attempt %d sent an Authorization header to an external URL", atomic.LoadInt32(&calls)+1)
+		}
+		if atomic.AddInt32(&calls, 1) == 1 {
+			w.WriteHeader(http.StatusServiceUnavailable)
+			return
+		}
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte("blob"))
+	}))
+	defer srv.Close()
+
+	resp, err := newTestClient("unused.test", "tok").GetExternal(srv.URL + "/blob")
+	if err != nil {
+		t.Fatalf("a transient 503 should be retried, got %v", err)
+	}
+	if resp.StatusCode != http.StatusOK || string(resp.Body) != "blob" {
+		t.Errorf("got %d %q, want 200 blob", resp.StatusCode, resp.Body)
+	}
+	if n := atomic.LoadInt32(&calls); n != 2 {
+		t.Errorf("made %d requests, want 2", n)
+	}
+}
+
+func TestGetExternalReportsALongRetryAfter(t *testing.T) {
+	var calls int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		atomic.AddInt32(&calls, 1)
+		w.Header().Set("Retry-After", "300")
+		w.WriteHeader(http.StatusTooManyRequests)
+	}))
+	defer srv.Close()
+
+	_, err := newTestClient("unused.test", "tok").GetExternal(srv.URL + "/blob")
+	var httpErr *HTTPError
+	if !errors.As(err, &httpErr) || httpErr.StatusCode != http.StatusTooManyRequests || httpErr.RetryAfter != 300*time.Second {
+		t.Fatalf("err = %v, want *HTTPError 429 with RetryAfter 5m", err)
+	}
+	if n := atomic.LoadInt32(&calls); n != 1 {
+		t.Errorf("made %d requests inside a window it was told to sit out", n)
+	}
+}
+
+func TestGetExternalDoesNotRetryATimeout(t *testing.T) {
+	var calls int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		atomic.AddInt32(&calls, 1)
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte("partial"))
+		w.(http.Flusher).Flush()
+		select {
+		case <-r.Context().Done():
+		case <-time.After(2 * time.Second):
+		}
+	}))
+	defer srv.Close()
+
+	c := newTestClient("unused.test", "tok")
+	c.httpClient.Timeout = 100 * time.Millisecond
+
+	_, err := c.GetExternal(srv.URL + "/blob")
+	var netErr interface{ Timeout() bool }
+	if !errors.As(err, &netErr) || !netErr.Timeout() {
+		t.Fatalf("err = %v, want a timeout", err)
+	}
+	if n := atomic.LoadInt32(&calls); n != 1 {
+		t.Errorf("made %d requests, want 1: a blob that timed out once would time out again", n)
+	}
+}
+
+func TestGetExternalErrorsDoNotCarryTheSignedURL(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}))
+	signedURL := srv.URL + "/blob?X-Goog-Signature=s3cr3t"
+	srv.Close()
+
+	_, err := newTestClient("unused.test", "tok").GetExternal(signedURL)
+	if err == nil {
+		t.Fatal("expected a connection error from a closed server")
+	}
+	if msg := err.Error(); strings.Contains(msg, "s3cr3t") || strings.Contains(msg, "?") {
+		t.Errorf("error leaks the signed URL: %q", msg)
+	}
+}
+
+func TestGetExternalTimeoutDoesNotCarryTheSignedURL(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		select {
+		case <-r.Context().Done():
+		case <-time.After(2 * time.Second):
+		}
+	}))
+	defer srv.Close()
+
+	c := newTestClient("unused.test", "tok")
+	c.httpClient.Timeout = 100 * time.Millisecond
+
+	_, err := c.GetExternal(srv.URL + "/blob?X-Goog-Signature=s3cr3t")
+	if err == nil {
+		t.Fatal("expected a timeout")
+	}
+	if msg := err.Error(); strings.Contains(msg, "s3cr3t") || strings.Contains(msg, "?") {
+		t.Errorf("error leaks the signed URL: %q", msg)
+	}
+}
+
+func TestGetExternalLogsTheURLWithoutItsQuery(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer srv.Close()
+
+	var logged strings.Builder
+	log.SetOutput(&logged)
+	defer log.SetOutput(os.Stderr)
+
+	if _, err := newTestClient("unused.test", "tok").GetExternal(srv.URL + "/blob?X-Goog-Signature=s3cr3t"); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(logged.String(), srv.URL+"/blob") {
+		t.Fatalf("expected the request in the log, got %q", logged.String())
+	}
+	if strings.Contains(logged.String(), "s3cr3t") || strings.Contains(logged.String(), "?") {
+		t.Errorf("debug log leaks the signed URL: %q", logged.String())
 	}
 }
