@@ -71,7 +71,7 @@ sem-ai pfc apply --project my-project \
 
 # 3. Confirm, then prove it on a real run.
 sem-ai pfc show --project my-project
-sem-ai workflow run --project my-project
+sem-ai workflow run --project my-project --branch main
 ```
 
 Pin the init job's agent when the commands need a particular image:
